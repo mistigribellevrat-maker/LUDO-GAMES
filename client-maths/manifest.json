@@ -1,0 +1,23 @@
+{
+    "LANCER.bat": "5b2493a7c5868db1eefcac85e165cbf438e1ac001f6a16dedcc161340fdc8ef0",
+    "main.py": "b006ae8307f702a02f2a38301afc9789bb4efb9f6ce4f72e771604d5ab13948a",
+    "problems.py": "12db89d6e0061936c14ba1b84e94f50c10cc0d8510b8286591d5acbcb22e061d",
+    "requirements.txt": "86f8cf19a7d7b610620dcda80192552dc2db0dce582d96a0390364df979ddc22",
+    "server_config.json": "a2a193a64e6d99f848fe73a4e81e8eaec64e410e940347932cdb9d92e6e186c5",
+    "services.py": "c340439a984d89d6d9df4217485dafa5e0458aaa797e1a70238a1acef9430cd7",
+    "ui_components.py": "ce860595649839284237fe408939fb83c4d51c775e0a170c65649f5712433004",
+    "commun/badges.py": "42d93a0e8c3991f38f6a05ec8afbb57ae3c91e2314ca9fbed4738a5e91bd70eb",
+    "commun/requirements.txt": "4b8183101fd19f071771805a42a31fbb234a7961921fdb8b783a279755a1b5d5",
+    "commun/scoring.py": "2034b5bb48a662b7b88e66cd68a9b6ce5ebe4c9fa2e1c094c7585342af88f0a1",
+    "commun/server_client.py": "65840a10811c42df298ac935c363147481f6a88f8c0c3bd60346a88c6262c7be",
+    "commun/theme.py": "dec132e4ba91e122f0f032b6ff34652ce857c6d85cfde1b101c23cf4a6a05e17",
+    "commun/ui_widgets.py": "aeb952406a48aa0930f902a811dc9ab1650f7cdeb674da31e56a8961f23ccc6b",
+    "commun/assets/avatars/1.jpg": "eaefe240ea95cb562ceafec3f61f68d08a1473bf60ef18b0f40886f4698cd8aa",
+    "commun/assets/avatars/1.mp4": "7661ea6d45e4341ed09cd5867f746b1ac7b66fd2f551192eaae5d0c2697e2949",
+    "commun/assets/avatars/1a.jpg": "2229c98156c10aa20729539fc9eec239dd43cf8dd048f0637655e85fdafebba4",
+    "commun/assets/avatars/1a.mp4": "d10f5d0a4a218450cd70712124838306298ef6f360b13a1498e75b6e123aae6e",
+    "commun/assets/avatars/1b.jpg": "73cfd1ce2ca05a9bf74c146321ad0bfe41357c7be12823fbf50a8e3fbda429eb",
+    "commun/assets/avatars/1b.mp4": "2a7844381e126270deed9e8dd1656c41c8d202a19eaa540e926fe4abd21c246c",
+    "commun/assets/avatars/1c.jpg": "e8e864549162b1d480ddd0ee0f3220c3963a6069c791db8fa33cbc6d4497525d",
+    "commun/assets/avatars/1c.mp4": "e2e4387e382a8313b07ab76f3792c0efccf2d48e87bc89e08ea8d3be9baf7861"
+}

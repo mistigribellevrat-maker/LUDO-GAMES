@@ -1,0 +1,1133 @@
+### FICHIER: DICTEE IA.bat ###
+
+@echo off
+cd /d C:\PROG_PYTHON\2025-06-16-DICTEE_IA
+call venv\Scripts\activate
+python main.py
+pause
+
+
+### FIN FICHIER: DICTEE IA.bat ###
+
+--------------------------------------------------------------------------------
+
+### FICHIER: main.py ###
+
+# main.py
+
+import os
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+import json
+import difflib
+import re
+import string
+import math
+import threading
+import time
+from dotenv import load_dotenv
+
+# --- Imports depuis nos modules locaux ---
+from services import (
+    GeminiService, TTSService, AntiCheatService, MusicService, 
+    VideoService, HighScoreService, VideoState
+)
+from ui_components import CityManager, HighScoreWindow, ProfileCreationWindow
+
+# --- Application Principale ---
+
+class DictationApp:
+    DIFFICULTY_LEVELS = ["CE1", "CE2", "CM1", "CM2", "Collège"]
+
+    def __init__(self, root, gemini_service, tts_service, anticheat_service, music_service, profile_data):
+        self.root = root
+        self.gemini_service = gemini_service
+        self.tts_service = tts_service
+        self.anticheat_service = anticheat_service
+        self.music_service = music_service
+        self.video_service = None
+        self.profile_data = profile_data
+        
+        self.dictation_sentences = []
+        self.current_sentence_index = 0
+        self.score = 20
+        self.game_over = False
+        self.start_time = None
+
+        self.root.title("DICTATION WAR // SYSTÈME DE DÉFENSE v2.5")
+        self.root.geometry("1200x850")
+        self.root.minsize(1200, 850)
+        
+        self._setup_theme()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+        self.high_score_service = None
+        self.high_scores_enabled = True
+        try:
+            self.high_score_service = HighScoreService()
+        except Exception as e:
+            self.high_scores_enabled = False
+            messagebox.showwarning("Scores désactivés", f"Impossible d'initialiser le service des scores.\n{e}\nLe Panthéon des Héros ne sera pas disponible.")
+
+        self._setup_widgets()
+        
+        username = self.profile_data.get('username', 'Commandant')
+        welcome_message = f"Systèmes en ligne, Commandant {username}. En attente de vos ordres."
+        self.tts_service.speak(welcome_message)
+        
+        self.music_service.play_background()
+        
+        # Utilise l'avatar du profil
+        avatar_path = self.profile_data.get('avatar_path')
+        self.video_service.set_custom_video(avatar_path)
+
+    def _setup_theme(self):
+        self.colors = {
+            'bg': '#0b0f19', 'panel': '#0f1630', 'panel2': '#0c142b', 'accent': '#00e5ff',
+            'accent2': '#00ff9c', 'text': '#c3eaff', 'muted': '#7aa0c4', 'danger': '#ff3b5e',
+            'warning': '#ffb74d'
+        }
+        self.root.configure(bg=self.colors['bg'])
+        style = ttk.Style(self.root)
+        style.theme_use('clam')
+
+        style.configure('.', background=self.colors['bg'], foreground=self.colors['text'], font=("Segoe UI", 10))
+        style.configure('TFrame', background=self.colors['bg'])
+        style.configure('HUD.TFrame', background=self.colors['panel'])
+        style.configure('HUD.Section.TFrame', background=self.colors['panel2'])
+        style.configure('TLabel', background=self.colors['bg'], foreground=self.colors['text'], font=("Segoe UI", 11))
+        style.configure('HUD.TLabel', background=self.colors['panel2'], foreground=self.colors['text'], font=("Segoe UI", 11))
+        style.configure('HUD.Title.TLabel', background=self.colors['panel'], foreground=self.colors['accent'], font=("Orbitron", 12, 'bold'))
+        style.configure('Status.TLabel', background=self.colors['bg'], foreground=self.colors['muted'], font=("Segoe UI", 10, 'italic'))
+        style.configure('TLabelframe', background=self.colors['panel2'], relief='solid', borderwidth=1, bordercolor=self.colors['accent'])
+        style.configure('TLabelframe.Label', background=self.colors['panel2'], foreground=self.colors['accent'], font=("Orbitron", 11, 'bold'))
+        
+        style.configure('Neon.TButton', background=self.colors['panel2'], foreground=self.colors['accent'], font=("Orbitron", 10, 'bold'), borderwidth=1, bordercolor=self.colors['accent'], relief='solid', padding=8)
+        style.map('Neon.TButton', background=[('active', '#112042'), ('pressed', '#0b162f'), ('disabled', self.colors['panel2'])], foreground=[('active', self.colors['accent2']), ('disabled', self.colors['muted'])], bordercolor=[('active', self.colors['accent2']), ('disabled', self.colors['muted'])])
+        style.configure('TEntry', fieldbackground=self.colors['panel2'], foreground=self.colors['text'], bordercolor=self.colors['muted'], insertcolor=self.colors['text'], relief='flat')
+        style.map('TEntry', bordercolor=[('focus', self.colors['accent'])])
+        self.root.option_add('*TCombobox*Listbox*Background', self.colors['panel2'])
+        self.root.option_add('*TCombobox*Listbox*Foreground', self.colors['text'])
+        self.root.option_add('*TCombobox*Listbox*selectBackground', '#17385f')
+        self.root.option_add('*TCombobox*Listbox*selectForeground', self.colors['accent2'])
+        style.configure('TCombobox', fieldbackground=self.colors['panel2'], background=self.colors['panel2'], foreground=self.colors['text'], arrowcolor=self.colors['accent'], bordercolor=self.colors['muted'], relief='flat')
+        style.map('TCombobox', fieldbackground=[('readonly', self.colors['panel2'])])
+        style.configure('Neon.Treeview', background=self.colors['panel2'], fieldbackground=self.colors['panel2'], foreground=self.colors['text'], bordercolor=self.colors['panel'])
+        style.configure('Neon.Treeview.Heading', background=self.colors['panel'], foreground=self.colors['accent'], font=("Orbitron", 10, 'bold'), relief='solid')
+        style.map('Neon.Treeview', background=[('selected', '#17385f')], foreground=[('selected', self.colors['accent2'])])
+        style.configure('TRadiobutton', background=self.colors['panel'], foreground=self.colors['text'], font=("Segoe UI", 10))
+        style.map('TRadiobutton', background=[('active', '#112042')], foreground=[('active', self.colors['accent2'])])
+
+    def _setup_widgets(self):
+        top_container = ttk.Frame(self.root)
+        top_container.pack(fill=tk.BOTH, expand=True)
+
+        cmd_frame = ttk.LabelFrame(top_container, text="CENTRE DE COMMANDEMENT", padding="10")
+        cmd_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(cmd_frame, text="NIVEAU DE MENACE :", style='HUD.TLabel').pack(side=tk.LEFT, padx=(0, 5))
+        self.level_var = tk.StringVar(value=self.DIFFICULTY_LEVELS[2])
+        level_menu = ttk.Combobox(cmd_frame, textvariable=self.level_var, values=self.DIFFICULTY_LEVELS, state="readonly", width=15)
+        level_menu.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(cmd_frame, text="SECTEUR D'ORIGINE :", style='HUD.TLabel').pack(side=tk.LEFT, padx=(20, 5))
+        self.theme_var = tk.StringVar(value="L'invasion extraterrestre")
+        theme_entry = ttk.Entry(cmd_frame, textvariable=self.theme_var, width=30, font=("Consolas", 11))
+        theme_entry.pack(side=tk.LEFT, padx=5, ipady=3)
+        
+        self.start_button = ttk.Button(cmd_frame, text="LANCER MISSION", command=self.start_new_dictation, style='Neon.TButton')
+        self.start_button.pack(side=tk.LEFT, padx=(20, 10))
+        
+        self.scores_button = ttk.Button(cmd_frame, text="PANTHÉON", command=self._show_high_scores, style='Neon.TButton')
+        self.scores_button.pack(side=tk.RIGHT, padx=10)
+        if not self.high_scores_enabled: self.scores_button.config(state=tk.DISABLED)
+
+        main_content_frame = ttk.Frame(top_container)
+        main_content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        right_column = ttk.Frame(main_content_frame, width=290)
+        right_column.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        right_column.pack_propagate(False)
+
+        video_width, video_height = 270, 480
+        video_frame = ttk.LabelFrame(right_column, text="LIAISON VISUELLE", width=video_width, height=video_height)
+        video_frame.pack(fill=tk.X, pady=(0, 10))
+        video_frame.pack_propagate(False)
+        self.video_service = VideoService(video_frame, video_width, video_height)
+
+        shield_panel = ttk.LabelFrame(right_column, text="INTÉGRITÉ DU DÔME")
+        shield_panel.pack(fill=tk.BOTH, expand=True)
+        self.score_label = ttk.Label(shield_panel, text="", font=("Orbitron", 28, 'bold'), anchor='center')
+        self.score_label.pack(pady=10, fill=tk.X)
+        self.shield_canvas = tk.Canvas(shield_panel, height=22, highlightthickness=0, bg=self.colors['panel2'])
+        self.shield_canvas.pack(pady=4, fill=tk.X, padx=5)
+        self._shield_pulse_phase = 0.0
+        self.update_score_display()
+
+        left_column = ttk.Frame(main_content_frame)
+        left_column.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        left_column.columnconfigure(0, weight=1)
+        left_column.rowconfigure(1, weight=1)
+
+        self.status_label = ttk.Label(left_column, text="Prêt à commencer.", style='Status.TLabel', anchor='center')
+        self.status_label.grid(row=0, column=0, columnspan=2, sticky='ew', pady=5)
+        
+        terminal_frame = ttk.LabelFrame(left_column, text="CONSOLE DE DÉCODAGE", padding=5)
+        terminal_frame.grid(row=1, column=0, sticky='nsew', padx=(0, 5))
+        terminal_frame.rowconfigure(0, weight=1)
+        terminal_frame.columnconfigure(0, weight=1)
+        
+        self.user_text = scrolledtext.ScrolledText(terminal_frame, height=10, font=("Consolas", 13), wrap=tk.WORD)
+        self.user_text.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.user_text.configure(bg='#0a0e14', fg=self.colors['text'], insertbackground=self.colors['accent2'], selectbackground='#17385f', relief='solid', bd=1, highlightcolor=self.colors['accent'], highlightbackground=self.colors['muted'])
+        self.user_text.tag_config("error", background=self.colors['danger'], foreground='white')
+        self.user_text.config(state=tk.DISABLED)
+
+        self.repeat_button = ttk.Button(terminal_frame, text="RÉPÉTER", command=self.repeat_sentence, state=tk.DISABLED, style='Neon.TButton')
+        self.repeat_button.grid(row=1, column=0, sticky='e', pady=5, padx=5)
+        self.validate_button = ttk.Button(terminal_frame, text="VALIDER", command=self.validate_sentence, state=tk.DISABLED, style='Neon.TButton')
+        self.validate_button.grid(row=1, column=1, sticky='w', pady=5, padx=5)
+
+        self.errors_frame = ttk.LabelFrame(left_column, text="ANALYSE DES ANOMALIES", padding="10")
+        self.errors_frame.grid(row=1, column=1, sticky='nsew', padx=(5, 0))
+        self._clear_errors_frame()
+
+        self.city_canvas = tk.Canvas(self.root, height=170, highlightthickness=0)
+        self.city_canvas.pack(side=tk.BOTTOM, fill=tk.X, pady=(10,0))
+        self.root.update_idletasks()
+        self.city_manager = CityManager(self.city_canvas, 20)
+
+    def _normalize_text(self, text: str) -> str:
+        t = text.lower().strip().replace("’", "'").replace("`", "'")
+        t = re.sub(r"\s+", " ", t).translate(str.maketrans('', '', string.punctuation))
+        return re.sub(r"\s+", " ", t).strip()
+
+    def _show_high_scores(self):
+        if self.high_scores_enabled: HighScoreWindow(self.root, self.high_score_service, self.colors)
+        else: messagebox.showerror("Erreur", "Le service du Panthéon n'est pas disponible.")
+    
+    def end_dictation(self):
+        self.anticheat_service.stop()
+        duration = time.time() - self.start_time if self.start_time else 0
+        shield_percent = int((self.score / 20) * 100)
+        final_message = f"MISSION ACCOMPLIE ! // BOUCLIERS À {shield_percent}%"
+        self.status_label.config(text=final_message, foreground=self.colors['accent2'])
+        final_speech = f"Mission terminée. Les boucliers du dôme sont à {shield_percent} pourcent. L'invasion est repoussée. Excellent travail, Commandant."
+        self.tts_service.speak(final_speech)
+        
+        if self.score > 0: self.video_service.set_video(VideoState.FINAL_VICTORY)
+        
+        self.music_service.resume_background()
+        
+        self.validate_button.config(state=tk.DISABLED)
+        self.repeat_button.config(state=tk.DISABLED)
+        self._clear_errors_frame()
+
+        if self.high_scores_enabled and self.score > 0:
+            name = self.profile_data.get('username')
+            if name:
+                try:
+                    self.high_score_service.add_score(self.level_var.get(), name, self.score, duration)
+                    messagebox.showinfo("Score Enregistré", "Votre exploit a été gravé dans le Panthéon des Héros !")
+                except Exception as e: messagebox.showerror("Erreur Sauvegarde", f"Impossible d'enregistrer le score :\n{e}")
+    
+    def start_new_dictation(self):
+        self.anticheat_service.start()
+        self.game_over = False
+        self.start_time = time.time()
+        self.start_button.config(state=tk.DISABLED)
+        self.status_label.config(text="DÉCRYPTAGE DE LA TRANSMISSION ENNEMIE...", foreground=self.colors['warning'])
+        self.root.update()
+        threading.Thread(target=self._generate_dictation_thread, daemon=True).start()
+
+    def handle_game_over(self):
+        self.anticheat_service.stop()
+        self.game_over = True
+        self.status_label.config(text="MISSION ÉCHOUÉE - BOUCLIERS HORS-SERVICE !", foreground=self.colors['danger'])
+        self.tts_service.speak("Alerte, les boucliers sont tombés ! La ville est vulnérable ! Repli immédiat !")
+        self.validate_button.config(state=tk.DISABLED)
+        self.repeat_button.config(state=tk.DISABLED)
+        self.music_service.resume_background()
+        messagebox.showwarning("Défaite", "Les boucliers de la ville sont à 0% ! Lancez une nouvelle mission pour retenter votre chance.")
+
+    def _on_closing(self):
+        self.anticheat_service.stop()
+        if self.video_service and self.video_service.player: self.video_service.player.stop()
+        temp_audio_dir = getattr(self.tts_service, 'temp_dir', 'temp_audio')
+        if os.path.exists(temp_audio_dir):
+            for f in os.listdir(temp_audio_dir):
+                try: os.remove(os.path.join(temp_audio_dir, f))
+                except Exception as e: print(f"Impossible de supprimer le fichier temp {f}: {e}")
+        try:
+            if pygame.mixer.get_init():
+                self.music_service.stop_background(fade_ms=500)
+                pygame.mixer.quit()
+        except Exception as e: print(f"Erreur à l'arrêt du mixer Pygame: {e}")
+        self.root.destroy()
+
+    def _generate_dictation_thread(self):
+        self.score = 20
+        self.dictation_sentences = self.gemini_service.generate_dictation(self.level_var.get(), self.theme_var.get())
+        self.root.after(0, self._on_dictation_generated)
+        
+    def _on_dictation_generated(self):
+        self.current_sentence_index = 0
+        self.city_manager.reset()
+        self.update_score_display()
+        self.start_button.config(state=tk.NORMAL)
+        if "Erreur" in self.dictation_sentences[0] or "Désolé" in self.dictation_sentences[0]:
+            self.anticheat_service.stop()
+            messagebox.showerror("Erreur IA", self.dictation_sentences[0])
+            self.status_label.config(text="Erreur de transmission.", foreground=self.colors['danger'])
+            self.video_service.set_video(VideoState.STARTUP)
+            return
+        self.next_sentence()
+        
+    def lose_points(self, amount):
+        if self.game_over: return
+        for _ in range(amount):
+            if self.score > 0:
+                building_index_to_destroy = 20 - self.score
+                self.city_manager.destroy_building(building_index_to_destroy)
+                self.score -= 1
+        self.update_score_display()
+        if self.score <= 0 and not self.game_over: self.handle_game_over()
+            
+    def validate_sentence(self):
+        if self.game_over: return
+        user_input = self.user_text.get("1.0", tk.END).strip()
+        original_sentence = self.dictation_sentences[self.current_sentence_index].strip()
+        
+        if self._normalize_text(user_input) == self._normalize_text(original_sentence):
+            self.video_service.set_video(VideoState.VALIDATION_SUCCESS)
+            self.tts_service.speak("Transmission correcte. Boucliers stabilisés.")
+            self.status_label.config(text="Décodage parfait !", foreground=self.colors['accent2'])
+            self.current_sentence_index += 1
+            self.root.after(1500, self.next_sentence)
+        else:
+            self.video_service.set_video(VideoState.VALIDATION_FAIL)
+            self.tts_service.speak("Erreur de décodage ! Impact imminent sur les boucliers !")
+            self.display_errors(original_sentence, user_input)
+
+    def display_errors(self, original, user):
+        self._clear_errors_frame()
+        self.user_text.tag_remove("error", "1.0", tk.END)
+        original_words, user_words = original.split(), user.split()
+        matcher = difflib.SequenceMatcher(None, original_words, user_words, autojunk=False)
+        mistake_count = 0
+        user_spans = [(m.start(), m.end()) for m in re.finditer(r"\S+", user)]
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'equal': continue
+            mistake_count += max(i2 - i1, j2 - j1)
+            if j1 < j2 and user_spans:
+                start_char_index = user_spans[j1][0] if j1 < len(user_spans) else 0
+                end_index_token = min(j2 - 1, len(user_spans) - 1)
+                end_char_index = user_spans[end_index_token][1]
+                self.user_text.tag_add("error", f"1.{start_char_index}", f"1.{end_char_index}")
+            if tag == 'replace':
+                for i in range(i1, i2):
+                    if j1 + (i - i1) < j2:
+                        cs, ce = user_spans[j1 + (i - i1)]
+                        self._create_error_ui(f"Anomalie: '{user_words[j1 + (i - i1)]}'", user_words[j1 + (i - i1)], original_words[i], char_start=cs, char_end=ce)
+            elif tag == 'delete':
+                insert_pos = user_spans[j1][0] if j1 < len(user_spans) else len(user)
+                for i in range(i1, i2): self._create_error_ui(f"Signal manquant: '{original_words[i]}'", None, original_words[i], insert_pos=insert_pos)
+            elif tag == 'insert':
+                for j in range(j1, j2):
+                    cs, ce = user_spans[j]
+                    self._create_error_ui(f"Signal parasite: '{user_words[j]}'", user_words[j], user_words[j], is_insertion=True, char_start=cs, char_end=ce)
+        if mistake_count > 0:
+            plural = "s" if mistake_count > 1 else ""
+            self.status_label.config(text=f"{mistake_count} anomalie{plural} détectée{plural}.", foreground=self.colors['warning'])
+            self.lose_points(mistake_count)
+
+    def request_help(self, user_word, original_word, is_insertion=False, char_start=None, char_end=None, insert_pos=None):
+        if self.game_over: return
+        self.lose_points(1)
+        self.status_label.config(text="Lancement du diagnostic...", foreground=self.colors['warning'])
+        original_sentence = self.dictation_sentences[self.current_sentence_index]
+        if is_insertion: explanation = self.gemini_service.get_insertion_explanation(original_sentence, user_word)
+        else: explanation = self.gemini_service.get_error_explanation(original_sentence, original_word, user_word)
+        self.status_label.config(text="Diagnostic terminé. Correction appliquée.", foreground=self.colors['muted'])
+        messagebox.showinfo(f"DIAGNOSTIC: '{user_word if user_word else original_word}'", explanation)
+        try:
+            if is_insertion and char_start is not None:
+                self.user_text.delete(f"1.{char_start}", f"1.{char_end}")
+            elif user_word and original_word and char_start is not None:
+                self.user_text.delete(f"1.{char_start}", f"1.{char_end}")
+                self.user_text.insert(f"1.{char_start}", original_word)
+            elif not user_word and original_word and insert_pos is not None:
+                current_text = self.user_text.get("1.0", tk.END)
+                prefix = "" if insert_pos == 0 or current_text[insert_pos-1].isspace() else " "
+                self.user_text.insert(f"1.{insert_pos}", prefix + original_word)
+        except Exception as e: print(f"Auto-correction échouée: {e}")
+        
+    def update_score_display(self):
+        shield_percent = int((self.score / 20) * 100)
+        color = self.colors['accent2'] if shield_percent > 60 else self.colors['warning'] if shield_percent > 25 else self.colors['danger']
+        self.score_label.config(text=f"{shield_percent}%", foreground=color)
+        self._render_shield_meter(shield_percent)
+
+    def _render_shield_meter(self, percent: int):
+        c = self.shield_canvas
+        c.delete('all')
+        self.root.update_idletasks()
+        w, h = c.winfo_width(), c.winfo_height()
+        if w <= 1: return
+        c.create_rectangle(1, 1, w-1, h-1, outline=self.colors['muted'], width=1)
+        segments, gap = 12, 3
+        seg_w = (w - (segments+1)*gap) / segments
+        filled = int(segments * percent / 100)
+        for i in range(segments):
+            x0, x1 = gap + i*(seg_w+gap), gap + i*(seg_w+gap) + seg_w
+            base_color = self.colors['accent2'] if percent > 60 else (self.colors['warning'] if percent > 25 else self.colors['danger'])
+            if i < filled: c.create_rectangle(x0, 4, x1, h-4, fill=base_color, outline='')
+            else: c.create_rectangle(x0, 4, x1, h-4, fill=self.colors['panel'])
+        try: self.root.after(120, lambda: self.update_score_display())
+        except tk.TclError: pass
+        
+    def next_sentence(self):
+        if self.game_over: return
+        if self.current_sentence_index < len(self.dictation_sentences):
+            if self.current_sentence_index == 0: self.music_service.stop_background()
+            
+            self.video_service.set_video(VideoState.TRANSMISSION)
+            self._clear_errors_frame()
+            self.user_text.config(state=tk.NORMAL)
+            self.user_text.delete("1.0", tk.END)
+            self.validate_button.config(state=tk.NORMAL)
+            self.repeat_button.config(state=tk.NORMAL)
+            sentence = self.dictation_sentences[self.current_sentence_index]
+            self.status_label.config(text=f"Transmission {self.current_sentence_index + 1}/{len(self.dictation_sentences)} reçue. En attente de décodage...", foreground=self.colors['muted'])
+            self.tts_service.speak(sentence, is_dictation_sentence=True)
+        else:
+            self.end_dictation()
+            
+    def repeat_sentence(self):
+        if self.game_over: return
+        if self.dictation_sentences and self.current_sentence_index < len(self.dictation_sentences):
+            sentence = self.dictation_sentences[self.current_sentence_index]
+            self.tts_service.speak(sentence, is_dictation_sentence=True)
+            
+    def _clear_errors_frame(self):
+        for widget in self.errors_frame.winfo_children(): widget.destroy()
+        ttk.Label(self.errors_frame, text="Aucune anomalie détectée.", style='Status.TLabel', background=self.colors['panel2']).pack()
+
+    def _create_error_ui(self, label_text, user_word, original_word_for_help, is_insertion=False, help_needed=True, char_start=None, char_end=None, insert_pos=None):
+        frame = ttk.Frame(self.errors_frame, style='HUD.TFrame')
+        frame.pack(fill=tk.X, pady=2)
+        error_label = ttk.Label(frame, text=f"> {label_text}", style='TLabel', wraplength=200)
+        error_label.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        if help_needed:
+            help_button = ttk.Button(frame, text="?", width=2, command=lambda uw=user_word, ow=original_word_for_help, ins=is_insertion, cs=char_start, ce=char_end, ip=insert_pos: self.request_help(uw, ow, ins, cs, ce, ip))
+            help_button.pack(side=tk.RIGHT, padx=5)
+
+if __name__ == "__main__":
+    PROFILE_FILE = 'profile.json'
+    profile_data = None
+
+    # Tenter de charger le profil existant
+    if os.path.exists(PROFILE_FILE):
+        try:
+            with open(PROFILE_FILE, 'r', encoding='utf-8') as f:
+                profile_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            profile_data = None # Forcera la création si le fichier est corrompu
+
+    # Si aucun profil n'est chargé, lancer la création
+    if not profile_data:
+        # On a besoin d'une racine Tk pour la fenêtre de dialogue et les styles
+        temp_root = tk.Tk()
+        temp_root.withdraw() # Cacher la fenêtre racine temporaire
+        
+        # On doit initialiser les styles pour que la fenêtre de profil soit correcte
+        # On simule une mini-app pour récupérer les couleurs
+        class StyleHelper:
+            def __init__(self, root):
+                self.root = root
+                self._setup_theme()
+            def _setup_theme(self):
+                self.colors = {
+                    'bg': '#0b0f19', 'panel': '#0f1630', 'panel2': '#0c142b', 'accent': '#00e5ff',
+                    'accent2': '#00ff9c', 'text': '#c3eaff', 'muted': '#7aa0c4', 'danger': '#ff3b5e',
+                    'warning': '#ffb74d'
+                }
+                style = ttk.Style(self.root)
+                style.theme_use('clam')
+                style.configure('TFrame', background=self.colors['bg'])
+                style.configure('HUD.TFrame', background=self.colors['panel'])
+                style.configure('HUD.Section.TFrame', background=self.colors['panel2'])
+                style.configure('HUD.Title.TLabel', background=self.colors['panel'], foreground=self.colors['accent'], font=("Orbitron", 12, 'bold'))
+                style.configure('HUD.TLabel', background=self.colors['panel2'], foreground=self.colors['text'], font=("Segoe UI", 11))
+                style.configure('Neon.TButton', background=self.colors['panel2'], foreground=self.colors['accent'], font=("Orbitron", 10, 'bold'), borderwidth=1, bordercolor=self.colors['accent'], relief='solid', padding=8)
+                style.map('Neon.TButton', background=[('active', '#112042')], foreground=[('active', self.colors['accent2'])])
+                style.configure('TEntry', fieldbackground=self.colors['panel2'], foreground=self.colors['text'], bordercolor=self.colors['muted'], insertcolor=self.colors['text'], relief='flat')
+                style.configure('TLabelframe', background=self.colors['panel2'])
+                style.configure('TLabelframe.Label', background=self.colors['panel2'], foreground=self.colors['accent'], font=("Orbitron", 11, 'bold'))
+                style.configure('TRadiobutton', background=self.colors['panel'], foreground=self.colors['text'], font=("Segoe UI", 10))
+                style.map('TRadiobutton', background=[('active', '#112042')], foreground=[('active', self.colors['accent2'])])
+
+        helper = StyleHelper(temp_root)
+        dialog = ProfileCreationWindow(temp_root, helper.colors)
+        profile_data = dialog.show()
+        temp_root.destroy()
+
+        if profile_data:
+            with open(PROFILE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(profile_data, f, indent=4, ensure_ascii=False)
+        else:
+            # L'utilisateur a fermé la fenêtre sans valider
+            sys.exit(0)
+
+    try:
+        load_dotenv()
+        root = tk.Tk()
+        
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key or "REMPLACEZ" in api_key:
+            root.withdraw()
+            messagebox.showerror("Erreur Critique", "Clé API Gemini non trouvée ou non configurée dans le fichier .env")
+            root.destroy()
+            sys.exit(1)
+        
+        gemini_service = GeminiService(api_key)
+        tts_service = TTSService()
+        anticheat_service = AntiCheatService()
+        music_service = MusicService()
+        
+        app = DictationApp(root, gemini_service, tts_service, anticheat_service, music_service, profile_data)
+        root.mainloop()
+
+    except ConnectionError as e: 
+        if 'root' in locals() and root.winfo_exists(): root.withdraw()
+        messagebox.showerror("Erreur de Connexion", str(e))
+    except Exception as e:
+        if 'root' in locals() and root.winfo_exists(): root.withdraw()
+        messagebox.showerror("Erreur Inattendue", f"Une erreur critique est survenue au démarrage: {e}")
+        if 'anticheat_service' in locals() and anticheat_service: anticheat_service.stop()
+
+
+### FIN FICHIER: main.py ###
+
+--------------------------------------------------------------------------------
+
+### FICHIER: services.py ###
+
+# services.py
+
+import os
+import threading
+import time
+import random
+import json
+import ftplib
+import io
+import sys
+from enum import Enum
+from datetime import datetime
+import subprocess
+
+# NOUVEAU : Imports Tkinter requis pour le VideoService
+import tkinter as tk
+
+import google.generativeai as genai
+import requests
+from gtts import gTTS
+import pygame
+import imageio
+from PIL import Image, ImageTk
+
+# --- Classe Helper pour le service Vidéo ---
+class ControlledVideoPlayer:
+    def __init__(self, label, video_path, size, loop=True, fps=24):
+        self.label = label
+        self.path = video_path
+        self.size = size
+        self.loop = loop
+        self.fps = fps
+        self.delay = int(1000 / self.fps)
+        self.thread = None
+        self.is_running = False
+
+    def _stream(self):
+        try:
+            reader = imageio.get_reader(self.path)
+            while self.is_running:
+                for frame in reader:
+                    if not self.is_running:
+                        break
+                    image = Image.fromarray(frame).resize(self.size, Image.Resampling.LANCZOS)
+                    photo_image = ImageTk.PhotoImage(image)
+                    self.label.config(image=photo_image)
+                    self.label.image = photo_image
+                    time.sleep(self.delay / 1000)
+                if not self.loop:
+                    self.is_running = False
+                    break
+        except Exception as e:
+            print(f"Erreur de lecture vidéo ({self.path}): {e}")
+            self.is_running = False
+
+    def play(self):
+        if not self.is_running:
+            self.is_running = True
+            self.thread = threading.Thread(target=self._stream, daemon=True)
+            self.thread.start()
+
+    def stop(self):
+        self.is_running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=0.1)
+
+# --- Énumération pour les états Vidéo ---
+class VideoState(Enum):
+    STARTUP = "1.mp4"
+    TRANSMISSION = "2.mp4"
+    VALIDATION_SUCCESS = "3p.mp4"
+    VALIDATION_FAIL = "3.mp4"
+    FINAL_VICTORY = "4.mp4"
+    IDLE = None
+
+# --- Définition des Services ---
+
+class VideoService:
+    TARGET_FPS = 16
+
+    def __init__(self, parent_frame, width, height):
+        self.frame = parent_frame
+        self.width = width
+        self.height = height
+        self.player = None
+        self.current_video_file = None
+        self.video_label = tk.Label(self.frame, bg="#000000")
+        self.video_label.pack(expand=True, fill="both")
+
+    def set_video(self, state: VideoState):
+        video_file = state.value
+        if video_file == self.current_video_file: return
+        if self.player: self.player.stop()
+        self.player = None
+        self.current_video_file = video_file
+        if video_file and os.path.exists(video_file):
+            try:
+                self.video_label.config(text="")
+                self.player = ControlledVideoPlayer(self.video_label, video_file, (self.width, self.height), fps=self.TARGET_FPS)
+                self.player.play()
+            except Exception as e:
+                print(f"Erreur lors du chargement de la vidéo {video_file}: {e}")
+                self.show_placeholder(f"Erreur vidéo:\n{video_file}")
+        elif video_file:
+            print(f"Avertissement : Fichier vidéo '{video_file}' non trouvé.")
+            self.show_placeholder(f"Vidéo manquante:\n{video_file}")
+        else:
+            self.show_placeholder("TRANSMISSION\nTERMINÉE")
+
+    def show_placeholder(self, text):
+        if self.player: self.player.stop()
+        self.player = None
+        self.video_label.config(image="", text=text, font=("Orbitron", 12, "bold"), fg="#00e5ff", bg="#000000")
+        self.current_video_file = None
+
+    def set_custom_video(self, video_path):
+        if video_path == self.current_video_file: return
+        if self.player: self.player.stop()
+        self.player = None
+        self.current_video_file = video_path
+        if video_path and os.path.exists(video_path):
+            try:
+                self.video_label.config(text="")
+                self.player = ControlledVideoPlayer(self.video_label, video_path, (self.width, self.height), fps=self.TARGET_FPS)
+                self.player.play()
+            except Exception as e:
+                print(f"Erreur lors du chargement de la vidéo {video_path}: {e}")
+                self.show_placeholder(f"Erreur vidéo:\n{video_path}")
+        elif video_path:
+            print(f"Avertissement : Fichier vidéo '{video_path}' non trouvé.")
+            self.show_placeholder(f"Vidéo manquante:\n{video_path}")
+        else:
+            self.show_placeholder("AVATAR NON DÉFINI")
+
+class MusicService:
+    def __init__(self, music_file="main.mp3", volume=0.3):
+        self.music_file = music_file
+        self.volume = volume
+        self.is_playing = False
+        if not os.path.exists(self.music_file):
+            print(f"Avertissement : Fichier musical '{self.music_file}' non trouvé.")
+            self.music_file = None
+
+    def play_background(self):
+        if not self.music_file or not pygame.mixer.get_init() or self.is_playing: return
+        try:
+            pygame.mixer.music.load(self.music_file)
+            pygame.mixer.music.set_volume(self.volume)
+            pygame.mixer.music.play(-1)
+            self.is_playing = True
+        except pygame.error as e: print(f"Erreur lors du lancement de la musique de fond : {e}")
+
+    def stop_background(self, fade_ms=1000):
+        if not self.music_file or not pygame.mixer.get_init() or not self.is_playing: return
+        pygame.mixer.music.fadeout(fade_ms)
+        self.is_playing = False
+
+    def resume_background(self): self.play_background()
+
+class AntiCheatService:
+    def __init__(self):
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def _block_process(self):
+        while not self.stop_event.is_set():
+            if sys.platform == "win32":
+                try: subprocess.run(["taskkill", "/F", "/IM", "chrome.exe", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except (FileNotFoundError, Exception): pass
+            time.sleep(2)
+
+    def start(self):
+        self.stop_event.clear()
+        self.thread = threading.Thread(target=self._block_process, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        if self.thread and self.thread.is_alive():
+            self.stop_event.set()
+            self.thread.join(timeout=1)
+
+class GeminiService:
+    def __init__(self, api_key):
+        try:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
+        except Exception as e: raise ConnectionError(f"Erreur de configuration de Gemini. Vérifiez votre clé API. Détails: {e}")
+
+    def generate_dictation(self, level, theme):
+        prompt = f"""Crée une dictée en français sur le thème "{theme}" pour un élève de niveau "{level}". La dictée doit contenir exactement 3 phrases distinctes et inclure de la ponctuation (virgules, points). Ne jamais écrire le mot "cœur". Ne fournis aucune introduction, conclusion ou titre. Sépare chaque phrase par un retour à la ligne simple."""
+        try:
+            response = self.model.generate_content(prompt)
+            sentences = [s.strip() for s in response.text.strip().split('\n') if s.strip()]
+            if len(sentences) < 1: return ["Désolé, je n'ai pas pu générer de dictée. Essayez un autre thème."]
+            return sentences
+        except Exception as e: return [f"Erreur lors de la génération de la dictée: {e}"]
+
+    def get_error_explanation(self, original_sentence, original_word, user_word):
+        prompt = f"""Je suis un élève qui fait une dictée. La phrase correcte est : "{original_sentence}". Dans cette phrase, le mot correct est "{original_word}". J'ai écrit "{user_word}" à la place. Mon erreur est la différence entre "{original_word}" et "{user_word}". Explique-moi précisément cette erreur (orthographe, conjugaison, accord, ou ponctuation collée au mot). Sois simple, pédagogique et encourageant. Donne la règle associée en une ou deux phrases maximum. Note importante : Si l'erreur concerne la différence entre "oe" et "œ", il s'agit d'une ligature et non d'un accent. Explique simplement qu'il faut utiliser le "o e entrelacé" ou "o e collé" pour ce mot."""
+        try: return self.model.generate_content(prompt).text
+        except Exception as e: return f"Désolé, une erreur est survenue lors de la demande d'aide: {e}"
+
+    def get_insertion_explanation(self, original_sentence, user_word):
+        prompt = f"""Dans la phrase correcte qui est : "{original_sentence}", j'ai ajouté le mot "{user_word}" qui est incorrect. Explique-moi en une ou deux phrases pourquoi ce mot est en trop ou mal placé, de manière simple et pédagogique."""
+        try: return self.model.generate_content(prompt).text
+        except Exception as e: return f"Désolé, une erreur est survenue lors de la demande d'aide: {e}"
+
+class TTSService:
+    def __init__(self, temp_dir="temp_audio"):
+        self.temp_dir = temp_dir
+        if not os.path.exists(self.temp_dir): os.makedirs(self.temp_dir)
+        self.audio_lock = threading.Lock()
+        self.mixer_initialized = False
+        try:
+            pygame.mixer.init()
+            self.mixer_initialized = True
+        except Exception as e: print(f"Initialisation mixer Pygame échouée: {e}")
+
+    def _get_temp_file(self): return os.path.join(self.temp_dir, f"temp_audio_{random.randint(1000, 9999)}.mp3")
+
+    def _prepare_text_for_speech(self, text):
+        replacements = {",": " virgule", ".": " point", "!": " point d'exclamation", "?": " point d'interrogation", ";": " point-virgule", ":": " deux-points"}
+        for p, r in replacements.items(): text = text.replace(p, r)
+        return text
+
+    def speak(self, text, is_dictation_sentence=False):
+        text_to_speak = self._prepare_text_for_speech(text) if is_dictation_sentence else text
+        def _speak_thread():
+            temp_file = self._get_temp_file()
+            with self.audio_lock:
+                if pygame.mixer.music.get_busy(): pygame.mixer.music.pause()
+                try:
+                    tts = gTTS(text=text_to_speak, lang='fr')
+                    tts.save(temp_file)
+                    if not self.mixer_initialized:
+                        try:
+                            pygame.mixer.init()
+                            self.mixer_initialized = True
+                        except Exception as e: print(f"Ré-init mixer Pygame échouée: {e}")
+                    sound = pygame.mixer.Sound(temp_file)
+                    sound.play()
+                    while pygame.mixer.get_busy(): time.sleep(0.1)
+                except Exception as e: print(f"Erreur TTS/Pygame: {e}")
+                finally:
+                    if pygame.mixer.music.get_busy() == 0: pygame.mixer.music.unpause()
+                    time.sleep(0.2)
+                    if os.path.exists(temp_file):
+                        try: os.remove(temp_file)
+                        except PermissionError as e: print(f"Impossible de supprimer {temp_file} (conflit probable): {e}")
+        threading.Thread(target=_speak_thread, daemon=True).start()
+
+class HighScoreService:
+    def __init__(self):
+        self.url = "https://www.gregbellevrat.fr/games/dictee/dictation_war_hall_of_fame.json"
+        self.ftp_host = os.getenv("FTP_HOST")
+        self.ftp_user = os.getenv("FTP_USER")
+        self.ftp_pass = os.getenv("FTP_PASS")
+        self.ftp_path = os.getenv("FTP_PATH")
+        self.scores = self._load_scores()
+
+    def _load_scores(self):
+        try:
+            response = requests.get(self.url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+            print(f"Erreur de chargement des scores depuis l'URL: {e}")
+            raise ConnectionError(f"Impossible de charger les scores depuis le web : {e}")
+
+    def _save_scores(self):
+        if not all([self.ftp_host, self.ftp_user, self.ftp_pass, self.ftp_path]):
+            raise ConnectionError("Les informations de connexion FTP ne sont pas définies dans le fichier .env")
+        try:
+            with ftplib.FTP(self.ftp_host, self.ftp_user, self.ftp_pass, timeout=10) as ftp:
+                ftp.cwd(self.ftp_path)
+                json_bytes = json.dumps(self.scores, indent=4, ensure_ascii=False).encode('utf-8')
+                with io.BytesIO(json_bytes) as bio:
+                    ftp.storbinary('STOR dictation_war_hall_of_fame.json', bio)
+        except Exception as e:
+            raise ConnectionError(f"Impossible de sauvegarder les scores via FTP : {e}")
+
+    def get_scores(self, difficulty):
+        return self.scores.get(difficulty, [])
+
+    def add_score(self, difficulty, name, score, duration):
+        if difficulty not in self.scores:
+            self.scores[difficulty] = []
+        entry = {
+            "name": name,
+            "score": score,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "duration": duration
+        }
+        self.scores[difficulty].append(entry)
+        self.scores[difficulty] = sorted(self.scores[difficulty], key=lambda x: (-x['score'], x.get('duration', 99999)))[:10]
+        self._save_scores()
+
+### FIN FICHIER: services.py ###
+
+--------------------------------------------------------------------------------
+
+### FICHIER: ui_components.py ###
+
+# ui_components.py
+
+# NOUVEAU : Imports Tkinter requis pour les widgets
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+import random
+import math
+from datetime import datetime
+
+class ProfileCreationWindow(tk.Toplevel):
+    def __init__(self, parent, colors):
+        super().__init__(parent)
+        self.parent = parent
+        self.colors = colors
+        self.username = tk.StringVar()
+        self.avatar_path = tk.StringVar()
+        self.result = None
+
+        self.title("Création du Profil Commandant")
+        self.configure(bg=self.colors['bg'])
+        self.resizable(False, False)
+
+        # Centre la fenêtre sur la fenêtre parente
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        self.geometry(f"500x350+{parent_x + (parent_width // 2) - 250}+{parent_y + (parent_height // 2) - 175}")
+
+        self.transient(parent)
+        self.grab_set()
+
+        self._create_widgets()
+
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self, style='HUD.TFrame', padding=20)
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        title_label = ttk.Label(main_frame, text="IDENTIFICATION REQUISE", style='HUD.Title.TLabel')
+        title_label.pack(pady=(0, 20))
+
+        # --- Section Pseudo ---
+        pseudo_frame = ttk.Frame(main_frame, style='HUD.Section.TFrame', padding=10)
+        pseudo_frame.pack(fill=tk.X)
+        
+        pseudo_label = ttk.Label(pseudo_frame, text="Pseudo du Commandant :", style='HUD.TLabel')
+        pseudo_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        pseudo_entry = ttk.Entry(pseudo_frame, textvariable=self.username, width=30, font=("Consolas", 11))
+        pseudo_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        pseudo_entry.focus_set()
+
+        # --- Section Avatar ---
+        avatar_frame = ttk.LabelFrame(main_frame, text="CHOIX DE L'AVATAR VISUEL", padding=15)
+        avatar_frame.pack(pady=20, fill=tk.X)
+
+        # NOTE: Les chemins sont hardcodés ici. Assurez-vous que ces fichiers existent.
+        avatars = {
+            "Pilote de Chasse": "assets/videos/1.mp4",
+            "Spationaute": "assets/videos/1a.mp4",
+            "Soldat d'élite": "assets/videos/1b.mp4",
+            "Androïde": "assets/videos/1c.mp4"
+        }
+        self.avatar_path.set("assets/videos/1.mp4") # Valeur par défaut
+
+        for name, path in avatars.items():
+            rb = ttk.Radiobutton(avatar_frame, text=name, variable=self.avatar_path, value=path, style='TRadiobutton')
+            rb.pack(anchor=tk.W, padx=20, pady=2)
+
+        # --- Bouton de validation ---
+        validate_button = ttk.Button(main_frame, text="VALIDER IDENTITÉ", command=self._on_submit, style='Neon.TButton')
+        validate_button.pack(pady=(10, 0))
+
+    def _on_submit(self):
+        username = self.username.get().strip()
+        if not username:
+            messagebox.showwarning("Pseudo manquant", "Veuillez entrer un pseudo pour votre Commandant.", parent=self)
+            return
+        if len(username) > 20:
+            messagebox.showwarning("Pseudo trop long", "Le pseudo ne doit pas dépasser 20 caractères.", parent=self)
+            return
+
+        self.result = {
+            "username": username,
+            "avatar_path": self.avatar_path.get()
+        }
+        self.destroy()
+
+    def show(self):
+        self.wait_window()
+        return self.result
+
+class CityManager:
+    def __init__(self, canvas, num_buildings=20):
+        self.canvas = canvas
+        self.num_buildings = num_buildings
+        self.buildings = []
+        self.particles = []
+        self.canvas_width = self.canvas.winfo_width()
+        self.canvas_height = self.canvas.winfo_height()
+        self.ground_level = self.canvas_height - 20
+        self.stars = []
+        self._create_scene()
+        self._animate_scene()
+
+    def _create_scene(self):
+        self._draw_sky_gradient()
+        self._create_stars()
+        self.canvas.create_rectangle(0, self.ground_level, self.canvas_width, self.canvas_height, fill="#282828", outline="")
+        for i in range(self.num_buildings): self._create_building(i)
+        self._create_spaceship()
+        self.beam_id = self.canvas.create_polygon(0,0, 0,0, 0,0, fill="#FF5733", smooth=True, state='hidden')
+        self.beam_core_id = self.canvas.create_line(0,0, 0,0, fill="#FFFFFF", width=2, state='hidden')
+
+    def _draw_sky_gradient(self):
+        c1, c2 = (25, 25, 112), (11, 15, 25)
+        steps = 100
+        for i in range(steps):
+            r, g, b = [int(c1[j] + (c2[j] - c1[j]) * i / steps) for j in range(3)]
+            color = f'#{r:02x}{g:02x}{b:02x}'
+            y = self.ground_level * (i / steps)
+            self.canvas.create_rectangle(0, y, self.canvas_width, y + (self.ground_level / steps) + 2, fill=color, outline="")
+
+    def _create_stars(self):
+        for _ in range(120):
+            x = random.uniform(0, self.canvas_width)
+            y = random.uniform(0, self.ground_level - 5)
+            size = random.choice([1, 1, 2])
+            color = random.choice(["#88e1ff", "#a0fff4", "#ffffff"])
+            speed = random.uniform(0.1, 0.6)
+            sid = self.canvas.create_oval(x, y, x+size, y+size, fill=color, outline="")
+            self.stars.append({'id': sid, 'speed': speed})
+
+    def _create_building(self, index):
+        if self.canvas_width < 1: return
+        building_width = self.canvas_width / (self.num_buildings + 1)
+        x0 = (index + 0.5) * building_width
+        max_height = self.ground_level - 40
+        height = random.randint(int(max_height * 0.4), int(max_height * 0.9))
+        y0 = self.ground_level - height
+        x1 = x0 + building_width * 0.8
+        color = random.choice(["#4A4A4A", "#555555", "#606060"])
+        rect_id = self.canvas.create_rectangle(x0, y0, x1, self.ground_level, fill=color, outline="#1C1C1C")
+        windows = []
+        win_size = 4
+        for r in range(int(height / (win_size * 2.5))):
+            for c in range(int((x1 - x0) / (win_size * 2.5))):
+                if random.random() > 0.3:
+                    win_x, win_y = x0 + (c + 0.5) * (win_size * 2), y0 + (r + 0.5) * (win_size * 2)
+                    win_color = "#FFFF00" if random.random() > 0.8 else "#333300"
+                    win_id = self.canvas.create_rectangle(win_x, win_y, win_x + win_size, win_y + win_size, fill=win_color, outline="")
+                    windows.append(win_id)
+        self.buildings.append({'id': rect_id, 'windows': windows, 'flames': [], 'state': 'intact'})
+
+    def _create_spaceship(self):
+        self.ship_body_id = self.canvas.create_polygon(0,0, 0,0, 0,0, 0,0, 0,0, fill="#B0C4DE", outline="#F5F5F5", width=2, state='hidden')
+        self.ship_cockpit_id = self.canvas.create_oval(0,0, 0,0, fill="#ADD8E6", outline="white", state='hidden')
+
+    def reset(self):
+        for building in self.buildings:
+            building['state'] = 'intact'
+            self.canvas.itemconfig(building['id'], fill=random.choice(["#4A4A4A", "#555555", "#606060"]))
+            for win_id in building['windows']: self.canvas.itemconfig(win_id, fill="#FFFF00" if random.random() > 0.8 else "#333300")
+            for flame_id in building['flames']: self.canvas.delete(flame_id)
+            building['flames'].clear()
+        self.canvas.itemconfig(self.ship_body_id, state='hidden')
+        self.canvas.itemconfig(self.ship_cockpit_id, state='hidden')
+
+    def destroy_building(self, index):
+        if not (0 <= index < len(self.buildings)): return
+        building = self.buildings[index]
+        if building['state'] == 'destroyed': return
+        building['state'] = 'destroyed'
+        b_coords = self.canvas.coords(building['id'])
+        target_x, target_y = (b_coords[0] + b_coords[2]) / 2, b_coords[1]
+        ship_x, ship_y = target_x, 50
+        body_coords = [ship_x-30, ship_y, ship_x+30, ship_y, ship_x+15, ship_y-15, ship_x-15, ship_y-15]
+        cockpit_coords = [ship_x-10, ship_y-22, ship_x+10, ship_y-10]
+        self.canvas.coords(self.ship_body_id, *body_coords)
+        self.canvas.coords(self.ship_cockpit_id, *cockpit_coords)
+        self.canvas.itemconfig(self.ship_body_id, state='normal')
+        self.canvas.itemconfig(self.ship_cockpit_id, state='normal')
+        self.canvas.after(400, self._fire_beam, ship_x, ship_y, target_x, target_y, building)
+
+    def _fire_beam(self, ship_x, ship_y, target_x, target_y, building):
+        beam_coords = [ship_x, ship_y, target_x-10, target_y, target_x+10, target_y]
+        self.canvas.coords(self.beam_id, *beam_coords)
+        self.canvas.coords(self.beam_core_id, ship_x, ship_y, target_x, target_y)
+        self.canvas.itemconfig(self.beam_id, state='normal', fill="#ff3b5e")
+        self.canvas.itemconfig(self.beam_core_id, state='normal')
+        self.canvas.after(150, self._create_explosion, target_x, target_y, building)
+
+    def _create_explosion(self, x, y, building):
+        self.canvas.itemconfig(self.beam_id, state='hidden')
+        self.canvas.itemconfig(self.beam_core_id, state='hidden')
+        self.canvas.itemconfig(building['id'], fill="#400000")
+        for win_id in building['windows']: self.canvas.itemconfig(win_id, fill="#1a1a1a")
+        for _ in range(30):
+            angle, speed = random.uniform(0, 2 * math.pi), random.uniform(2, 6)
+            dx, dy = speed * math.cos(angle), speed * math.sin(angle)
+            size, color = random.randint(3, 6), random.choice(["#FFD700", "#FFA500", "#FF4500", "#FF6347"])
+            p_id = self.canvas.create_oval(x-size, y-size, x+size, y+size, fill=color, outline="")
+            self.particles.append({'id': p_id, 'dx': dx, 'dy': dy, 'life': 25})
+        self.canvas.after(300, self._ignite_building, building)
+        self.canvas.after(500, lambda: (self.canvas.itemconfig(self.ship_body_id, state='hidden'), self.canvas.itemconfig(self.ship_cockpit_id, state='hidden')))
+
+    def _ignite_building(self, building):
+        coords = self.canvas.coords(building['id'])
+        x_center, y_top = (coords[0] + coords[2]) / 2, coords[1]
+        width = coords[2] - coords[0]
+        for i in range(5):
+            base_x = x_center + random.uniform(-width/3, width/3)
+            base_y = y_top
+            flame_height = random.uniform(10, 20)
+            flame_width = random.uniform(5, 10)
+            points = [base_x - flame_width/2, base_y, base_x + flame_width/2, base_y, base_x, base_y - flame_height]
+            color = random.choice(["#FF4500", "#FFA500"])
+            flame_id = self.canvas.create_polygon(points, fill=color, outline="", smooth=True)
+            building['flames'].append(flame_id)
+
+    def _animate_scene(self):
+        for s in self.stars:
+            self.canvas.move(s['id'], 0, s['speed'])
+            coords = self.canvas.coords(s['id'])
+            if coords and coords[1] > self.ground_level:
+                dy = -(self.ground_level - 2)
+                self.canvas.move(s['id'], random.uniform(-3, 3), dy)
+        for p in self.particles[:]:
+            p['dy'] += 0.2
+            self.canvas.move(p['id'], p['dx'], p['dy'])
+            p['life'] -= 1
+            if p['life'] <= 0:
+                self.canvas.delete(p['id'])
+                self.particles.remove(p)
+        for building in self.buildings:
+            if building['state'] == 'destroyed':
+                for flame_id in building['flames']:
+                    coords = self.canvas.coords(flame_id)
+                    if len(coords) == 6:
+                        coords[4] += random.uniform(-1, 1)
+                        coords[5] += random.uniform(-1.5, 0.5)
+                        self.canvas.coords(flame_id, *coords)
+        self.canvas.after(50, self._animate_scene)
+
+class HighScoreWindow(tk.Toplevel):
+    DIFFICULTY_RANKS = {
+        "CE1": "Recrue", "CE2": "Soldat", "CM1": "Caporal",
+        "CM2": "Vétéran", "Collège": "Grand Stratège"
+    }
+    TOP_TITLES = {
+        1: "Légende Galactique", 2: "Héros de Guerre", 3: "As du Secteur"
+    }
+
+    def __init__(self, parent, score_service, colors):
+        super().__init__(parent)
+        self.title("Panthéon des Héros")
+        self.geometry("800x400")
+        self.configure(bg=colors['bg'])
+        self.transient(parent)
+        self.grab_set()
+        
+        self.score_service = score_service
+
+        ttk.Label(self, text="Théâtre d'Opérations :", style='HUD.Title.TLabel').pack(pady=10)
+        
+        self.difficulty_var = tk.StringVar(value=list(self.DIFFICULTY_RANKS.keys())[0])
+        self.difficulty_menu = ttk.Combobox(self, textvariable=self.difficulty_var, 
+                                            values=list(self.DIFFICULTY_RANKS.keys()), state="readonly", style='Neon.TCombobox')
+        self.difficulty_menu.pack(pady=5)
+        self.difficulty_menu.bind("<<ComboboxSelected>>", self._update_display)
+
+        cols = ("Rang", "Titre", "Commandant", "Score", "Temps", "Date")
+        self.tree = ttk.Treeview(self, columns=cols, show='headings', style='Neon.Treeview')
+        for col in cols:
+            self.tree.heading(col, text=col)
+        self.tree.column("Rang", width=50, anchor=tk.CENTER)
+        self.tree.column("Titre", width=150, anchor=tk.CENTER)
+        self.tree.column("Commandant", width=150, anchor=tk.W)
+        self.tree.column("Score", width=80, anchor=tk.CENTER)
+        self.tree.column("Temps", width=80, anchor=tk.CENTER)
+        self.tree.column("Date", width=100, anchor=tk.CENTER)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self._update_display()
+
+    def _update_display(self, event=None):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        
+        difficulty = self.difficulty_var.get()
+        scores = self.score_service.get_scores(difficulty)
+
+        for i, entry in enumerate(scores):
+            rank = i + 1
+            title = self.TOP_TITLES.get(rank, "-")
+            
+            if difficulty == "Collège" and rank == 1:
+                title = "COMMANDANT UNIVERSEL"
+
+            duration = entry.get("duration")
+            if duration is not None:
+                minutes, seconds = divmod(int(duration), 60)
+                time_str = f"{minutes:02d}:{seconds:02d}"
+            else:
+                time_str = "--:--"
+
+            self.tree.insert("", "end", values=(f"#{rank}", title, entry["name"], f"{entry['score']}/20", time_str, entry.get("date", "N/A")))
+
+
+### FIN FICHIER: ui_components.py ###
+
+--------------------------------------------------------------------------------
+

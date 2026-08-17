@@ -1,0 +1,29 @@
+# Secrets — ne jamais versionner
+.env
+
+# Etat local du joueur
+user_profile.json
+high_scores.json
+
+# Reglage serveur propre a ce PC (voir server_config.json pour le defaut distribue)
+server_config.local.json
+
+# Serveur de scores
+server.log
+scores.db
+scores.db-wal
+scores.db-shm
+
+# Fichiers temporaires generes a l'execution
+temp_audio/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Outils
+.pytest_cache/
+.coverage
+htmlcov/
