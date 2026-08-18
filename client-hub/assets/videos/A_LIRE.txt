@@ -5,9 +5,10 @@ Deposer ici un fichier nomme exactement :
 
     hub.mp4
 
-Il sera joue UNE FOIS (avec le son, si la piste audio existe) au demarrage du
-Hub, dans le bandeau 16/9 en haut de l'ecran d'accueil, puis reste fige sur la
-derniere image. Cliquer sur le bandeau la rejoue depuis le debut.
+Il sera joue UNE FOIS (avec le son, si la piste audio existe), en fenetre
+pop-up 16/9, au demarrage du Hub (meme mecanisme que la dictee et les maths).
+Cliquer sur le bandeau en haut de l'ecran d'accueil rejoue la transmission
+depuis le debut.
 Tant qu'aucun fichier n'est depose, le bandeau garde sa place et affiche
 "ECRAN DE COMMANDEMENT (video 16/9)" : l'ecran ne change pas de forme le jour
 ou la video arrive.

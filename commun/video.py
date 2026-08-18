@@ -6,17 +6,20 @@ bug de gel : Tkinter n'est pas thread-safe, donc le thread worker ne fait QUE
 décoder/redimensionner, et tout le rendu Tk passe par le thread principal. Ce
 code délicat est mutualisé ici plutôt que recopié dans chaque jeu.
 
-Deux usages prêts à l'emploi par-dessus :
-* `VideoBanner`  — zone 16/9 intégrée à un écran (bandeau du Hub), toujours
-  muette (bandeau en boucle infinie, voir assets/videos/A_LIRE.txt) ;
-* `IntroVideoWindow` — fenêtre pop-up 16/9 jouée une fois au démarrage d'un
-  jeu, avec sa piste audio si `pygame` et `imageio_ffmpeg` sont disponibles.
+Usage prêt à l'emploi par-dessus : `IntroVideoWindow` (et son raccourci
+`play_intro`) — fenêtre pop-up 16/9 jouée une fois au démarrage d'un jeu, avec
+sa piste audio si `pygame` et `imageio_ffmpeg` sont disponibles. Les trois
+jeux (dictée, maths, Hub) s'en servent tous désormais pour leur vidéo
+d'accueil : une lecture intégrée en boucle (`VideoBanner`) a existé pour le
+bandeau du Hub, mais son décodage d'image partageait le thread Tk avec le
+reste de la construction de l'écran, ce qui décalait l'image par rapport au
+son (lu en temps réel sur un thread séparé) — la pop-up, isolée, n'a pas ce
+problème.
 
 `imageio` est importé de façon tolérante : un jeu sans cette dépendance (ou une
 installation incomplète) affiche un cadre vide au lieu de refuser de démarrer.
 Même logique pour `pygame`/`imageio_ffmpeg` côté son : sans eux, l'intro reste
-muette plutôt que de planter (c'est d'ailleurs le cas du Hub, qui n'a pas
-`pygame` en dépendance).
+muette plutôt que de planter.
 """
 
 import logging
@@ -365,63 +368,6 @@ class ControlledVideoPlayer:
             self._poll_job = self.label.after(delay_ms, self._play_cache, session)
         except tk.TclError:
             pass
-
-
-class VideoBanner(tk.Frame):
-    """Zone 16/9 intégrée à un écran, qui joue une vidéo (avec son si
-    `pygame`/`imageio_ffmpeg` sont disponibles) une fois à l'ouverture, puis
-    reste figée sur la dernière image. Cliquer dessus la rejoue depuis le
-    début. Sans fichier vidéo, elle garde sa place et affiche un repère
-    discret : l'écran ne change pas de forme selon qu'une vidéo a été déposée
-    ou non."""
-
-    TARGET_FPS = 16
-
-    def __init__(self, master, video_path: str = None, width: int = 640,
-                 placeholder: str = "", bg: str = "#000000", fg: str = "#4f6287",
-                 font=None, **kw) -> None:
-        height = sixteen_nine(width)
-        super().__init__(master, width=width, height=height, bg=bg, **kw)
-        self.pack_propagate(False)
-        self.grid_propagate(False)
-        self._size = (width, height)
-        self._player: ControlledVideoPlayer | None = None
-        self._audio: _IntroAudioTrack | None = None
-        self._video_path: str | None = None
-        self.label = tk.Label(self, bg=bg, fg=fg, text="", font=font)
-        self.label.pack(fill=tk.BOTH, expand=True)
-        self.label.bind("<Button-1>", lambda _e: self.replay())
-        self.set_video(video_path, placeholder)
-
-    def set_video(self, video_path: str = None, placeholder: str = "") -> None:
-        self.stop()
-        self._video_path = video_path
-        if video_path and os.path.exists(video_path) and video_available():
-            self.label.config(text="", image="", cursor="hand2")
-            self._start_playback()
-        else:
-            self.label.config(image="", text=placeholder, cursor="")
-
-    def replay(self) -> None:
-        """Rejoue la vidéo depuis le début (clic sur le bandeau)."""
-        if self._video_path and os.path.exists(self._video_path) and video_available():
-            self._start_playback()
-
-    def _start_playback(self) -> None:
-        self.stop()
-        self._player = ControlledVideoPlayer(
-            self.label, self._video_path, self._size, loop=False, fps=self.TARGET_FPS)
-        self._player.play()
-        if audio_available():
-            self._audio = _IntroAudioTrack(self._video_path)
-
-    def stop(self) -> None:
-        if self._player is not None:
-            self._player.stop()
-            self._player = None
-        if self._audio is not None:
-            self._audio.stop()
-            self._audio = None
 
 
 class IntroVideoWindow(tk.Toplevel):

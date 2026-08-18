@@ -32,7 +32,7 @@ for _commun_candidate in (os.path.join(_HERE, "commun"), os.path.join(_HERE, "..
         break
 
 from theme import PALETTE, FONT_DISPLAY, FONT_BODY, FONT_MONO
-from ui_widgets import NeonButton, RoundedFrame, SectionHeader, SegmentedControl
+from ui_widgets import NeonButton, RoundedFrame, SectionHeader, SegmentedControl, ShieldMeter
 from server_client import HighScoreService, load_server_config
 from scoring import GRADES as SHARED_GRADES, grade_name
 from badges import badge_name
@@ -42,17 +42,9 @@ from logs import log_tk_exceptions, setup_file_logging
 from problems import LEVELS, MathMission, compute_rewards, evaluate_badges
 from services import TTSService
 from ui_components import ProtectionGrid, MathHighScoreWindow
+from ui_extras import CommandBackdrop, IconBadge, StatChip, LEVEL_ICONS
 
 logger = logging.getLogger(__name__)
-
-INTRO_TEXT = (
-    "Ici Commandant {name}. Unité de défense orbitale isolée, secteur sept. "
-    "Nous avons été attaqués. La grille de protection a tenu, mais elle "
-    "faiblit. Je ne peux pas la reverrouiller seul — j'ai besoin de vous. "
-    "Résolvez les calculs pour refermer chaque section. Vous avez droit à "
-    "deux erreurs. Pas une de plus : à la troisième, les aliens passent. "
-    "Prêt, Commandant ?"
-)
 
 
 class MathsApp:
@@ -95,7 +87,7 @@ class MathsApp:
             self.username = self._ask_username() or "Commandant"
             self._save_profile()
 
-        self.content = tk.Frame(self.root, bg=PALETTE["bg"])
+        self.content = CommandBackdrop(self.root, bg=PALETTE["bg"])
         self.content.pack(fill=tk.BOTH, expand=True)
 
         self.mission: MathMission | None = None
@@ -289,20 +281,21 @@ class MathsApp:
         return photo
 
     def _build_avatar_portrait(self, parent, size=(96, 96)) -> tk.Widget:
-        """Portrait du joueur : vignette réelle si un avatar est choisi, sinon
-        un médaillon générique aux initiales (jamais d'écran vide)."""
+        """Portrait du joueur dans un anneau circulaire accent : vignette
+        réelle si un avatar est choisi, sinon un médaillon générique aux
+        initiales (jamais d'écran vide)."""
+        w, h = size
+        canvas = tk.Canvas(parent, width=w, height=h, bg=PALETTE["panel2"], highlightthickness=0)
         photo = self._get_avatar_photo(size)
         if photo is not None:
-            label = tk.Label(parent, image=photo, bg=PALETTE["panel2"],
-                              highlightthickness=2, highlightbackground=PALETTE["accent"])
-            label.image = photo
-            return label
-        canvas = tk.Canvas(parent, width=size[0], height=size[1], bg=PALETTE["panel2"],
-                            highlightthickness=2, highlightbackground=PALETTE["accent"])
-        initial = (self.username or "?")[0].upper()
-        canvas.create_oval(4, 4, size[0] - 4, size[1] - 4, fill=PALETTE["panel3"], outline=PALETTE["accent"], width=2)
-        canvas.create_text(size[0] / 2, size[1] / 2, text=initial, fill=PALETTE["accent_hi"],
-                            font=(FONT_DISPLAY, int(size[1] * 0.4), "bold"))
+            canvas.image = photo
+            canvas.create_image(w / 2, h / 2, image=photo)
+        else:
+            initial = (self.username or "?")[0].upper()
+            canvas.create_oval(3, 3, w - 3, h - 3, fill=PALETTE["panel3"], outline="")
+            canvas.create_text(w / 2, h / 2, text=initial, fill=PALETTE["accent_hi"],
+                                font=(FONT_DISPLAY, int(h * 0.4), "bold"))
+        canvas.create_oval(3, 3, w - 3, h - 3, fill="", outline=PALETTE["accent"], width=2)
         return canvas
 
     def _refresh_avatar_display(self) -> None:
@@ -328,39 +321,36 @@ class MathsApp:
         title_box.pack(side=tk.LEFT, anchor="w")
         SectionHeader(title_box, eyebrow="Transmission entrante", title=f"Commandant {self.username}",
                       bg=PALETTE["bg"]).pack(anchor="w")
-        tk.Label(title_box, text=f"{self._grade_name()}  —  {self.credits} crédits",
-                 bg=PALETTE["bg"], fg=PALETTE["muted"], font=(FONT_BODY, 10, "italic")).pack(anchor="w")
+        stats_row = tk.Frame(title_box, bg=PALETTE["bg"])
+        stats_row.pack(anchor="w", pady=(6, 0))
+        StatChip(stats_row, "GRADE", self._grade_name(), width=150).pack(side=tk.LEFT, padx=(0, 8))
+        StatChip(stats_row, "CRÉDITS", self.credits, width=110).pack(side=tk.LEFT)
 
         panel = RoundedFrame(c, padding=20, bg=PALETTE["bg"])
-        panel.pack(fill=tk.BOTH, expand=True, padx=28, pady=12)
-
-        tk.Label(panel.inner, text=INTRO_TEXT.format(name=self.username), bg=PALETTE["panel2"],
-                 fg=PALETTE["text"], font=(FONT_BODY, 12), wraplength=760, justify=tk.LEFT).pack(
-            anchor="w", pady=(0, 16))
+        panel.pack(fill=tk.X, padx=28, pady=12)
 
         level_row = tk.Frame(panel.inner, bg=PALETTE["panel2"])
-        level_row.pack(anchor="w", pady=(0, 16))
+        level_row.pack(anchor="w", fill=tk.X, pady=(0, 16))
+        self._level_badge = IconBadge(level_row, LEVEL_ICONS[LEVELS[0]], diameter=32)
+        self._level_badge.pack(side=tk.LEFT, padx=(0, 10))
         tk.Label(level_row, text="Niveau :", bg=PALETTE["panel2"], fg=PALETTE["accent"],
                  font=(FONT_DISPLAY, 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
         self.level_var = tk.StringVar(value=LEVELS[0])
         SegmentedControl(level_row, LEVELS, self.level_var, bg=PALETTE["panel2"]).pack(side=tk.LEFT)
-
-        best = self.best_scores.get(self.level_var.get())
-        self.best_score_label = tk.Label(
-            panel.inner, text=self._best_score_text(), bg=PALETTE["panel2"],
-            fg=PALETTE["muted"], font=(FONT_BODY, 10, "italic"))
-        self.best_score_label.pack(anchor="w", pady=(0, 16))
+        self._record_chip = StatChip(level_row, "RECORD", self._best_score_value(), width=110)
+        self._record_chip.pack(side=tk.RIGHT)
 
         def _on_level_change(*_a):
-            self.best_score_label.config(text=self._best_score_text())
+            self._record_chip.update(self._best_score_value())
+            self._level_badge.set_icon(LEVEL_ICONS[self.level_var.get()])
         self.level_var.trace_add("write", _on_level_change)
 
         btn_row = tk.Frame(panel.inner, bg=PALETTE["panel2"])
         btn_row.pack(anchor="w")
-        NeonButton(btn_row, text="Verrouiller la grille", command=self.start_mission,
-                   variant="solid", bg=PALETTE["panel2"], height=38).pack(side=tk.LEFT, padx=(0, 10))
+        NeonButton(btn_row, text="🔒 Verrouiller la grille", command=self.start_mission,
+                   variant="solid", bg=PALETTE["panel2"], height=44).pack(side=tk.LEFT, padx=(0, 10))
         NeonButton(btn_row, text="Panthéon", command=self._open_high_scores,
-                   variant="ghost", bg=PALETTE["panel2"], height=38).pack(side=tk.LEFT)
+                   variant="ghost", bg=PALETTE["panel2"], height=44).pack(side=tk.LEFT)
 
         # Le briefing parlé attend la fin de l'intro vidéo : les deux en même
         # temps se parleraient dessus. Sans fichier vidéo, _play_intro_video
@@ -389,12 +379,12 @@ class MathsApp:
         progression globale, un même total doit afficher le même titre partout."""
         return grade_name(self.xp)
 
-    def _best_score_text(self) -> str:
+    def _best_score_value(self) -> str:
         best = self.best_scores.get(self.level_var.get())
         if best is None:
-            return "Aucune fermeture de grille enregistrée à ce niveau."
+            return "—"
         from problems import SEGMENTS
-        return f"Meilleure fermeture à ce niveau : {best}/{SEGMENTS}"
+        return f"{best}/{SEGMENTS}"
 
     def _open_high_scores(self) -> None:
         if self.high_scores_enabled:
@@ -416,20 +406,28 @@ class MathsApp:
         top.pack(fill=tk.X, padx=24, pady=(18, 6))
         self._build_avatar_portrait(top, size=(56, 56)).pack(side=tk.LEFT, padx=(0, 12))
         info = tk.Frame(top, bg=PALETTE["bg"])
-        info.pack(side=tk.LEFT, anchor="w")
-        tk.Label(info, text=f"NIVEAU {level.upper()}", bg=PALETTE["bg"], fg=PALETTE["accent"],
-                 font=(FONT_DISPLAY, 10, "bold")).pack(anchor="w")
+        info.pack(side=tk.LEFT, anchor="w", fill=tk.X, expand=True, padx=(0, 12))
+        level_title_row = tk.Frame(info, bg=PALETTE["bg"])
+        level_title_row.pack(anchor="w")
+        IconBadge(level_title_row, LEVEL_ICONS.get(level, "🧮"), diameter=26).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(level_title_row, text=f"NIVEAU {level.upper()}", bg=PALETTE["bg"], fg=PALETTE["accent"],
+                 font=(FONT_DISPLAY, 10, "bold")).pack(side=tk.LEFT)
         self.progress_label = tk.Label(info, text="", bg=PALETTE["bg"], fg=PALETTE["text_strong"],
                                         font=(FONT_DISPLAY, 12, "bold"))
         self.progress_label.pack(anchor="w")
+        self._shield_meter = ShieldMeter(info, height=12, bg=PALETTE["bg"])
+        self._shield_meter.pack(anchor="w", fill=tk.X, pady=(4, 0))
         NeonButton(top, text="Abandonner", command=self.show_intro, variant="ghost",
                    bg=PALETTE["bg"], height=30).pack(side=tk.RIGHT)
 
         body = tk.Frame(c, bg=PALETTE["bg"])
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=8)
 
-        self.grid_canvas = ProtectionGrid(body, bg=PALETTE["bg"])
-        self.grid_canvas.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+        ring_wrap = tk.Frame(body, bg=PALETTE["bg"], width=380, height=380)
+        ring_wrap.pack_propagate(False)
+        ring_wrap.pack(pady=(0, 6))
+        self.grid_canvas = ProtectionGrid(ring_wrap, bg=PALETTE["bg"])
+        self.grid_canvas.pack(fill=tk.BOTH, expand=True)
 
         self.question_label = tk.Label(body, text="", bg=PALETTE["bg"], fg=PALETTE["text_strong"],
                                         font=(FONT_MONO, 30, "bold"))
@@ -456,6 +454,8 @@ class MathsApp:
         self.progress_label.config(
             text=f"Cases verrouillées : {m.closed}/{SEGMENTS}   —   Échecs : {m.mistakes}/{m.max_mistakes}"
         )
+        remaining = max(0, m.max_mistakes - m.mistakes)
+        self._shield_meter.set_value(100 * remaining / m.max_mistakes)
 
     def _show_current_question(self) -> None:
         self.question_label.config(text=f"{self.mission.current.question} = ?")
@@ -535,29 +535,41 @@ class MathsApp:
 
         banner_color = PALETTE["accent2"] if victory else PALETTE["danger"]
         banner_text = "GRILLE VERROUILLÉE — MISSION ACCOMPLIE" if victory else "BRÈCHE DÉTECTÉE — LES ALIENS ONT PERCÉ"
+        badge_icon = "🛡" if victory else "⚠"
+        mistakes = self.mission.mistakes if self.mission else 0
 
-        tk.Label(c, text=banner_text, bg=PALETTE["bg"], fg=banner_color,
-                 font=(FONT_DISPLAY, 20, "bold")).pack(pady=(60, 10))
-        tk.Label(c, text=f"Cases verrouillées : {score}/{total}", bg=PALETTE["bg"], fg=PALETTE["text_strong"],
-                 font=(FONT_DISPLAY, 14)).pack(pady=(0, 6))
+        wrap = tk.Frame(c, bg=PALETTE["bg"])
+        wrap.pack(expand=True)
+
+        IconBadge(wrap, badge_icon, diameter=64, ring_color=banner_color).pack(pady=(40, 12))
+
+        card = RoundedFrame(wrap, padding=24, bg=PALETTE["bg"])
+        card.pack()
+
+        tk.Label(card.inner, text=banner_text, bg=PALETTE["panel2"], fg=banner_color,
+                 font=(FONT_DISPLAY, 18, "bold"), wraplength=420, justify=tk.CENTER).pack(pady=(0, 14))
+
+        stats_row = tk.Frame(card.inner, bg=PALETTE["panel2"])
+        stats_row.pack(pady=(0, 14))
+        StatChip(stats_row, "CASES", f"{score}/{total}", width=110).pack(side=tk.LEFT, padx=4)
+        StatChip(stats_row, "ÉCHECS", str(mistakes), width=100).pack(side=tk.LEFT, padx=4)
         if credit_gain > 0 or xp_gain > 0:
-            tk.Label(c, text=f"+{credit_gain} crédits   +{xp_gain} XP", bg=PALETTE["bg"], fg=PALETTE["accent"],
-                     font=(FONT_DISPLAY, 12, "bold")).pack(pady=(0, 6))
+            StatChip(stats_row, "CRÉDITS", f"+{credit_gain}", width=100).pack(side=tk.LEFT, padx=4)
+            StatChip(stats_row, "XP", f"+{xp_gain}", width=90).pack(side=tk.LEFT, padx=4)
+
         if newly_unlocked:
             names = ", ".join(badge_name(bid) for bid in newly_unlocked)
-            tk.Label(c, text=f"Nouveau(x) succès : {names}", bg=PALETTE["bg"], fg=PALETTE["accent2"],
-                     font=(FONT_BODY, 11, "italic")).pack(pady=(0, 30))
-        else:
-            tk.Label(c, text="", bg=PALETTE["bg"]).pack(pady=(0, 30))
+            tk.Label(card.inner, text=f"Nouveau(x) succès : {names}", bg=PALETTE["panel2"], fg=PALETTE["accent2"],
+                     font=(FONT_BODY, 11, "italic"), wraplength=420, justify=tk.CENTER).pack(pady=(0, 6))
 
-        btn_row = tk.Frame(c, bg=PALETTE["bg"])
-        btn_row.pack()
+        btn_row = tk.Frame(card.inner, bg=PALETTE["panel2"])
+        btn_row.pack(pady=(10, 0))
         NeonButton(btn_row, text="Rejouer ce niveau", command=lambda: self._replay(level),
-                   variant="solid", bg=PALETTE["bg"], height=38).pack(side=tk.LEFT, padx=8)
+                   variant="solid", bg=PALETTE["panel2"], height=40).pack(side=tk.LEFT, padx=6)
         NeonButton(btn_row, text="Panthéon", command=self._open_high_scores,
-                   variant="ghost", bg=PALETTE["bg"], height=38).pack(side=tk.LEFT, padx=8)
+                   variant="ghost", bg=PALETTE["panel2"], height=40).pack(side=tk.LEFT, padx=6)
         NeonButton(btn_row, text="Retour à la transmission", command=self.show_intro,
-                   variant="ghost", bg=PALETTE["bg"], height=38).pack(side=tk.LEFT, padx=8)
+                   variant="ghost", bg=PALETTE["panel2"], height=40).pack(side=tk.LEFT, padx=6)
 
     def _replay(self, level: str) -> None:
         self.level_var = tk.StringVar(value=level)

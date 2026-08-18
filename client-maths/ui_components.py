@@ -6,6 +6,9 @@ from tkinter import ttk
 from theme import FONT_DISPLAY, FONT_BODY, PALETTE, alpha_over, mix
 
 from problems import LEVELS, SEGMENTS
+from ui_extras import IconBadge
+
+PODIUM_COLORS = {0: "#ffd166", 1: "#c9d6e4", 2: "#cd7f32"}  # or / argent / bronze
 
 
 class ProtectionGrid(tk.Canvas):
@@ -172,10 +175,13 @@ class MathHighScoreWindow(tk.Toplevel):
 
         header = tk.Frame(self, bg=colors['bg'])
         header.pack(fill=tk.X, padx=16, pady=(14, 4))
-        tk.Label(header, text="INGÉNIEURS DE LA GRILLE", bg=colors['bg'],
+        IconBadge(header, "🏆", diameter=40).pack(side=tk.LEFT, padx=(0, 10))
+        title_box = tk.Frame(header, bg=colors['bg'])
+        title_box.pack(side=tk.LEFT, anchor='w')
+        tk.Label(title_box, text="INGÉNIEURS DE LA GRILLE", bg=colors['bg'],
                  fg=colors.get('text_strong', '#f4f9ff'),
                  font=(FONT_DISPLAY, 15, 'bold')).pack(anchor='w')
-        tk.Label(header, text="Classement des meilleures fermetures de grille", bg=colors['bg'],
+        tk.Label(title_box, text="Classement des meilleures fermetures de grille", bg=colors['bg'],
                  fg=colors.get('muted', '#86a3c8'), font=(FONT_BODY, 10, 'italic')).pack(anchor='w')
 
         row = tk.Frame(self, bg=colors['bg'])
@@ -250,6 +256,9 @@ class MathHighScoreWindow(tk.Toplevel):
             self.tree.insert("", "end", values=("", "Erreur de chargement des scores", "", "", ""))
             return
 
+        for rank, color in PODIUM_COLORS.items():
+            self.tree.tag_configure(f"podium{rank}", foreground=color)
+
         for i, entry in enumerate(scores):
             duration = entry.get("duration")
             if duration is not None:
@@ -257,7 +266,8 @@ class MathHighScoreWindow(tk.Toplevel):
                 time_str = f"{minutes:02d}:{seconds:02d}"
             else:
                 time_str = "--:--"
+            tags = (f"podium{i}",) if i in PODIUM_COLORS else ()
             self.tree.insert("", "end", values=(
                 f"#{i + 1}", entry["name"], f"{entry['score']}/{self.segments}",
                 time_str, entry.get("date", "N/A"),
-            ))
+            ), tags=tags)
