@@ -40,6 +40,11 @@ BADGES = [
     {"id": "maths_premiere_victoire", "name": "Grille verrouillée", "desc": "Remporter une mission de maths."},
     {"id": "maths_grille_parfaite", "name": "Grille intacte", "desc": "Remporter une mission de maths sans la moindre erreur."},
     {"id": "maths_explorateur", "name": "Ingénieur en chef", "desc": "Fermer au moins une case sur chacun des 5 niveaux de maths."},
+
+    # --- Tourelle de Défense (conjugaison) ---
+    {"id": "conj_premiere_victoire", "name": "Secteur sécurisé", "desc": "Remporter une mission de conjugaison."},
+    {"id": "conj_defense_parfaite", "name": "Dôme intact", "desc": "Remporter une mission de conjugaison sans la moindre erreur."},
+    {"id": "conj_polyglotte", "name": "Officier linguiste", "desc": "Repousser au moins une vague sur chacun des 5 niveaux de conjugaison."},
 ]
 
 BADGE_NAMES = {b["id"]: b["name"] for b in BADGES}

@@ -33,7 +33,7 @@ from scoring import grade_info
 from campaign import CampaignRunner
 from leaderboard import LeaderboardWindow
 from avatar_picker import AvatarPicker, list_avatars, resolve_avatar, thumbnail_path
-from video import play_intro, sixteen_nine
+from video import play_intro
 from logs import log_tk_exceptions, setup_file_logging
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,8 @@ GAMES = [
      "icon": "🎧", "tagline": "Écoutez, écrivez, corrigez."},
     {"id": "maths", "label": "Grille de Protection", "eyebrow": "Mathématiques", "dir": "../client-maths",
      "icon": "🛡", "tagline": "Calcul mental sous pression."},
+    {"id": "conjugaison", "label": "Tourelle de Défense", "eyebrow": "Conjugaison", "dir": "../client-conjugaison",
+     "icon": "🎯", "tagline": "Visez juste, conjuguez vite."},
 ]
 
 PLAYERS_PATH = os.path.join(_HERE, "players.json")
@@ -347,32 +349,17 @@ class HubApp:
 
     # Vidéo d'accueil 16/9, jouée en pop-up (comme la dictée et les maths, voir
     # commun/video.py::play_intro) une fois au démarrage, avec son. Déposer le
-    # fichier à cet emplacement suffit à l'activer. Cliquer sur le bandeau la
-    # rejoue depuis le début.
+    # fichier à cet emplacement suffit à l'activer.
     BANNER_VIDEO_PATH = os.path.join("assets", "videos", "hub.mp4")
-    BANNER_WIDTH = 480  # 16/9 -> 270 px de haut
 
     def _build_ui(self) -> None:
-        banner_row = tk.Frame(self.root, bg=PALETTE["bg"])
-        banner_row.pack(fill=tk.X, pady=(18, 4))
-        banner_frame = tk.Frame(
-            banner_row, width=self.BANNER_WIDTH, height=sixteen_nine(self.BANNER_WIDTH),
-            bg=PALETTE["bg_deep"], highlightthickness=1, highlightbackground=PALETTE["border"])
-        banner_frame.pack_propagate(False)
-        banner_frame.pack()
-        self.banner = tk.Label(
-            banner_frame, text="ÉCRAN DE COMMANDEMENT\n(vidéo 16/9)",
-            bg=PALETTE["bg_deep"], fg=PALETTE["faint"], font=(FONT_BODY, 10, "italic"))
-        self.banner.pack(fill=tk.BOTH, expand=True)
-
-        self._banner_video_path = os.path.join(_HERE, self.BANNER_VIDEO_PATH)
-        if os.path.exists(self._banner_video_path):
-            self.banner.config(cursor="hand2")
-            self.banner.bind("<Button-1>", lambda _e: self._play_banner_video())
-            self._play_banner_video()
+        banner_video_path = os.path.join(_HERE, self.BANNER_VIDEO_PATH)
+        if os.path.exists(banner_video_path):
+            play_intro(self.root, banner_video_path, bg=PALETTE["bg_deep"],
+                       hint_fg=PALETTE["faint"], font=(FONT_BODY, 9, "italic"))
 
         header = tk.Frame(self.root, bg=PALETTE["bg"])
-        header.pack(fill=tk.X, padx=28, pady=(10, 8))
+        header.pack(fill=tk.X, padx=28, pady=(18, 8))
         SectionHeader(header, eyebrow="Base de commandement",
                       title="Choisissez votre mission", bg=PALETTE["bg"]).pack(anchor="w")
 
@@ -476,15 +463,6 @@ class HubApp:
                                            bg=PALETTE["panel2"], height=38)
         self.campaign_button.pack(side=tk.RIGHT)
         campaign_card.fit_height()
-
-    def _play_banner_video(self) -> None:
-        def _after_video() -> None:
-            self.banner.config(text="ÉCRAN DE COMMANDEMENT\n(clique pour revoir la transmission)")
-
-        play_intro(
-            self.root, self._banner_video_path, on_close=_after_video,
-            bg=PALETTE["bg_deep"], hint_fg=PALETTE["faint"], font=(FONT_BODY, 9, "italic"),
-        )
 
     def _set_busy(self, text: str) -> None:
         self.status_var.set(text)

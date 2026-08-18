@@ -39,7 +39,7 @@ from badges import badge_name
 from video import play_intro
 from logs import log_tk_exceptions, setup_file_logging
 
-from problems import LEVELS, MathMission, compute_rewards, evaluate_badges
+from problems import LEVELS, MathMission, QUESTION_TIME_S, compute_rewards, evaluate_badges
 from services import TTSService
 from ui_components import ProtectionGrid, MathHighScoreWindow
 from ui_extras import CommandBackdrop, IconBadge, StatChip, LEVEL_ICONS
@@ -92,6 +92,12 @@ class MathsApp:
 
         self.mission: MathMission | None = None
         self._mission_start_time = 0.0
+        self._timer_after_id: str | None = None
+        # Jeton de session : incrémenté à chaque nouvelle mission, pour qu'un
+        # tick de minuteur en vol (après un Abandonner ou un Rejouer) ne
+        # s'applique jamais à la mission suivante (même technique que
+        # commun/video.py::ControlledVideoPlayer._session).
+        self._mission_session = 0
 
         self.show_intro()
         self._identify_with_server()
@@ -311,6 +317,7 @@ class MathsApp:
             widget.destroy()
 
     def show_intro(self) -> None:
+        self._cancel_question_timer()
         self._clear_content()
         c = self.content
 
@@ -399,6 +406,8 @@ class MathsApp:
         self._build_mission_screen(level)
 
     def _build_mission_screen(self, level: str) -> None:
+        self._cancel_question_timer()
+        self._mission_session += 1
         self._clear_content()
         c = self.content
 
@@ -428,6 +437,10 @@ class MathsApp:
         ring_wrap.pack(pady=(0, 6))
         self.grid_canvas = ProtectionGrid(ring_wrap, bg=PALETTE["bg"])
         self.grid_canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.timer_label = tk.Label(body, text="", bg=PALETTE["bg"], fg=PALETTE["accent2"],
+                                     font=(FONT_DISPLAY, 13, "bold"))
+        self.timer_label.pack(pady=(4, 0))
 
         self.question_label = tk.Label(body, text="", bg=PALETTE["bg"], fg=PALETTE["text_strong"],
                                         font=(FONT_MONO, 30, "bold"))
@@ -464,10 +477,63 @@ class MathsApp:
             self._answer_entry.focus_set()
         except tk.TclError:
             pass
+        self._start_question_timer()
+
+    # --- Minuteur par question ---------------------------------------
+    # Chaque question doit être résolue avant la fin du compte à rebours
+    # (durée par niveau : problems.QUESTION_TIME_S), sinon c'est compté comme
+    # une mauvaise réponse — même conséquence qu'une erreur de calcul. Le
+    # jeton `_mission_session` évite qu'un tick en vol après un Abandonner/
+    # Rejouer ne s'applique à la mission suivante.
+
+    def _cancel_question_timer(self) -> None:
+        if self._timer_after_id is not None:
+            try:
+                self.root.after_cancel(self._timer_after_id)
+            except tk.TclError:
+                pass
+            self._timer_after_id = None
+
+    def _start_question_timer(self) -> None:
+        self._cancel_question_timer()
+        self._time_left = QUESTION_TIME_S.get(self.mission.level, 10)
+        self._update_timer_display()
+        session = self._mission_session
+        self._timer_after_id = self.root.after(1000, lambda: self._tick_question_timer(session))
+
+    def _tick_question_timer(self, session: int) -> None:
+        self._timer_after_id = None
+        if session != self._mission_session:
+            return
+        self._time_left -= 1
+        self._update_timer_display()
+        if self._time_left <= 0:
+            self._on_time_up()
+            return
+        self._timer_after_id = self.root.after(1000, lambda: self._tick_question_timer(session))
+
+    def _update_timer_display(self) -> None:
+        try:
+            if not self.timer_label.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        total = QUESTION_TIME_S.get(self.mission.level, 10)
+        t = max(0, self._time_left)
+        ratio = t / total if total else 0
+        color = PALETTE["accent2"] if ratio > 0.5 else PALETTE["warning"] if ratio > 0.2 else PALETTE["danger"]
+        self.timer_label.config(text=f"⏱ {t}s", fg=color)
+
+    def _on_time_up(self) -> None:
+        if self.mission is None or self.mission.finished:
+            return
+        self.answer_var.set("")
+        self._submit_answer()
 
     def _submit_answer(self) -> None:
         if self.mission is None or self.mission.finished:
             return
+        self._cancel_question_timer()
         value = self.answer_var.get().strip()
         result = self.mission.answer(value)
         self._refresh_mission_labels()
@@ -530,6 +596,7 @@ class MathsApp:
 
     def _show_result_screen(self, victory: bool, score: int, total: int, level: str,
                              credit_gain: int = 0, xp_gain: int = 0, newly_unlocked: list = None) -> None:
+        self._cancel_question_timer()
         self._clear_content()
         c = self.content
 

@@ -34,6 +34,17 @@ LEVELS = ["CE1", "CE2", "CM1", "CM2", "Collège"]
 SEGMENTS = 10
 MAX_MISTAKES = 2  # 2 échecs autorisés ; le 3e déclenche la défaite
 
+# Temps accordé par question (secondes) : décroît avec le niveau, comme la
+# difficulté des calculs eux-mêmes. Un temps écoulé compte comme une mauvaise
+# réponse (voir MathsApp._on_time_up dans main.py).
+QUESTION_TIME_S: dict[str, int] = {
+    "CE1": 14,
+    "CE2": 12,
+    "CM1": 10,
+    "CM2": 9,
+    "Collège": 8,
+}
+
 # Poids de ce jeu dans l'XP commune : une mission de maths dure autant qu'une
 # dictée, elle vaut donc autant (voir commun/scoring.py::compute_rewards).
 GAME_WEIGHT = 1.0
