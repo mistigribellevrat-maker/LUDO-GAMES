@@ -374,13 +374,10 @@ class MathsApp:
     INTRO_VIDEO_PATH = os.path.join("assets", "videos", "intro.mp4")
 
     def _play_intro_video(self) -> None:
-        def _after_intro() -> None:
-            self.tts_service.speak(INTRO_TEXT.format(name=self.username))
-
+        # La vidéo remplace le briefing parlé par défaut (elle fait déjà l'accueil).
         play_intro(
             self.root,
             os.path.join(_HERE, self.INTRO_VIDEO_PATH),
-            on_close=_after_intro,
             bg=PALETTE["bg"],
             hint_fg=PALETTE["muted"],
             font=(FONT_BODY, 9, "italic"),

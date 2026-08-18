@@ -7,16 +7,23 @@ décoder/redimensionner, et tout le rendu Tk passe par le thread principal. Ce
 code délicat est mutualisé ici plutôt que recopié dans chaque jeu.
 
 Deux usages prêts à l'emploi par-dessus :
-* `VideoBanner`  — zone 16/9 intégrée à un écran (bandeau du Hub) ;
-* `IntroVideoWindow` — fenêtre pop-up 16/9 jouée une fois au démarrage d'un jeu.
+* `VideoBanner`  — zone 16/9 intégrée à un écran (bandeau du Hub), toujours
+  muette (bandeau en boucle infinie, voir assets/videos/A_LIRE.txt) ;
+* `IntroVideoWindow` — fenêtre pop-up 16/9 jouée une fois au démarrage d'un
+  jeu, avec sa piste audio si `pygame` et `imageio_ffmpeg` sont disponibles.
 
 `imageio` est importé de façon tolérante : un jeu sans cette dépendance (ou une
 installation incomplète) affiche un cadre vide au lieu de refuser de démarrer.
+Même logique pour `pygame`/`imageio_ffmpeg` côté son : sans eux, l'intro reste
+muette plutôt que de planter (c'est d'ailleurs le cas du Hub, qui n'a pas
+`pygame` en dépendance).
 """
 
 import logging
 import os
 import queue
+import subprocess
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -28,7 +35,80 @@ try:
 except ImportError:  # pragma: no cover - dépend de l'installation du poste
     imageio = None
 
+try:
+    import imageio_ffmpeg
+except ImportError:  # pragma: no cover - dépend de l'installation du poste
+    imageio_ffmpeg = None
+
+try:
+    import pygame
+except ImportError:  # pragma: no cover - dépend de l'installation du poste
+    pygame = None
+
 logger = logging.getLogger(__name__)
+
+
+def audio_available() -> bool:
+    """False si pygame ou imageio_ffmpeg manque : l'intro reste alors muette
+    plutôt que d'échouer."""
+    return pygame is not None and imageio_ffmpeg is not None
+
+
+class _IntroAudioTrack:
+    """Extrait (ffmpeg, via imageio_ffmpeg) puis joue (pygame) la piste audio
+    d'une vidéo d'intro, en parallèle de son image.
+
+    L'extraction tourne dans un thread à part pour ne pas retarder l'ouverture
+    de la fenêtre. Un fichier trop court, sans piste audio, ou un ffmpeg en
+    échec laisse simplement l'intro muette (log en info, pas d'exception)."""
+
+    def __init__(self, video_path: str) -> None:
+        self._stopped = False
+        self._channel = None
+        self._tmp_path: str | None = None
+        threading.Thread(target=self._extract_and_play, args=(video_path,), daemon=True).start()
+
+    def _extract_and_play(self, video_path: str) -> None:
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        cmd = [
+            imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", video_path,
+            "-vn", "-ac", "2", "-ar", "44100", tmp_path,
+        ]
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            check=True, creationflags=creationflags)
+        except (OSError, subprocess.CalledProcessError) as e:
+            logger.info("Pas de piste audio exploitable pour %s (%s).", video_path, e)
+            self._cleanup(tmp_path)
+            return
+        if self._stopped:
+            self._cleanup(tmp_path)
+            return
+        self._tmp_path = tmp_path
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            sound = pygame.mixer.Sound(tmp_path)
+            if not self._stopped:
+                self._channel = sound.play()
+        except pygame.error as e:
+            logger.warning("Lecture audio impossible pour %s: %s", video_path, e)
+
+    def stop(self) -> None:
+        self._stopped = True
+        if self._channel is not None:
+            self._channel.stop()
+        if self._tmp_path:
+            self._cleanup(self._tmp_path)
+
+    @staticmethod
+    def _cleanup(path: str) -> None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 ASPECT_W, ASPECT_H = 16, 9
 
@@ -369,6 +449,7 @@ class IntroVideoWindow(tk.Toplevel):
             self.label, video_path, (width, height), loop=False,
             fps=self.TARGET_FPS, on_finished=self.close)
         self._player.play()
+        self._audio = _IntroAudioTrack(video_path) if audio_available() else None
 
     def close(self) -> None:
         if self._closed:
@@ -380,6 +461,8 @@ class IntroVideoWindow(tk.Toplevel):
             except tk.TclError:
                 pass
         self._player.stop()
+        if self._audio is not None:
+            self._audio.stop()
         try:
             self.destroy()
         except tk.TclError:

@@ -159,14 +159,11 @@ class DictationApp:
         self._refresh_inventory_ui()
         self._update_xp_display()
         self.avatar_video_service.set_startup_video(self.avatar_path if self.avatar_path and os.path.exists(self.avatar_path) else None)
-        self.music_service.play_background()
         self.avatar_video_service.set_video(VideoState.STARTUP)
         self.event_video_service.set_video(VideoState.IDLE)
 
-        # Intro vidéo 16/9 en pop-up, puis message d'accueil. Le message est
-        # décalé après l'intro : les deux en même temps se parleraient dessus.
-        # Sans fichier vidéo, play_intro appelle directement la suite — le jeu
-        # démarre donc normalement tant qu'aucune intro n'a été déposée.
+        # Intro vidéo 16/9 en pop-up avec son : la musique de fond n'attaque
+        # qu'à sa fin, sinon les deux se parleraient dessus.
         self._play_intro_video()
 
     # Intro jouée au démarrage : déposer le fichier à cet emplacement suffit à
@@ -175,12 +172,8 @@ class DictationApp:
 
     def _play_intro_video(self) -> None:
         def _after_intro() -> None:
-            if self._closing:
-                return
-            self.tts_service.speak(
-                "Systèmes en ligne. Boucliers du dôme à 100%. "
-                "En attente de vos ordres, Commandant."
-            )
+            if not self._closing:
+                self.music_service.play_background()
 
         play_intro(
             self.root,
