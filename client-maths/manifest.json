@@ -6,6 +6,7 @@
     "server_config.json": "a2a193a64e6d99f848fe73a4e81e8eaec64e410e940347932cdb9d92e6e186c5",
     "services.py": "c340439a984d89d6d9df4217485dafa5e0458aaa797e1a70238a1acef9430cd7",
     "ui_components.py": "ce860595649839284237fe408939fb83c4d51c775e0a170c65649f5712433004",
+    "assets/videos/intro.mp4": "42666cc49d855aec0f1c34f22f9515e30d5c85cc8ac318ad44ff777f26a4a469",
     "commun/avatars.py": "c54abc97e2c63fb5ef025bd17d60fa7c5462e720e9367964e179b388d7fd8256",
     "commun/badges.py": "42d93a0e8c3991f38f6a05ec8afbb57ae3c91e2314ca9fbed4738a5e91bd70eb",
     "commun/logs.py": "e2e7b1dfa123225650de6394ec02d4a2a6a0420c13afbd94b3f6ef20199f4a9b",

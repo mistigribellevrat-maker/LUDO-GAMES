@@ -12,6 +12,7 @@
     "services.py": "9fae14e4f2865a2a946c96e7bb977bbc3d1ee3dfb08f0b6b331dbb4d77eebe17",
     "ui_components.py": "9ee327df378868edc62e737b725ff473030a61ba56d7bf321f2b1a210711c68d",
     "assets/images/intro.png": "98764a2cf0c6ac985f20806d019c13ddc695345bb42a54edb70bdf539f661888",
+    "assets/videos/intro.mp4": "b489eebf2a06953c33191c4c7e60a36e5d46b5f870bb93a0cf52f9c23b52ba9a",
     "commun/avatars.py": "c54abc97e2c63fb5ef025bd17d60fa7c5462e720e9367964e179b388d7fd8256",
     "commun/badges.py": "42d93a0e8c3991f38f6a05ec8afbb57ae3c91e2314ca9fbed4738a5e91bd70eb",
     "commun/logs.py": "e2e7b1dfa123225650de6394ec02d4a2a6a0420c13afbd94b3f6ef20199f4a9b",
