@@ -111,3 +111,56 @@ class TestDisplayErrorsSideEffects:
         app = fake_display_errors_app
         app.display_errors("Le chat dort", "Le chat dort", penalize=True)
         app.status_label.config.assert_not_called()
+
+
+class TestAnomalyPanelState:
+    """Le panneau de droite se contredisait à l'écran : « Aucune anomalie
+    détectée. » restait affiché AU-DESSUS de la liste des anomalies, parce que
+    _clear_errors_frame ajoutait toujours ce libellé avant qu'on y écrive."""
+
+    def test_placeholder_is_not_kept_when_anomalies_are_listed(self, fake_display_errors_app):
+        app = fake_display_errors_app
+        app.display_errors("Le chat noir dort", "Le chien noir dort", penalize=True)
+        assert app._clear_errors_frame.call_args.kwargs == {"show_placeholder": False}
+        app._show_no_anomaly.assert_not_called()
+
+    def test_placeholder_is_shown_when_only_punctuation_differs(self, fake_display_errors_app):
+        """La phrase est refusée (comparaison stricte) alors que le comparateur
+        de mots ne voit aucune faute : sans ce libellé, l'enfant a un panneau
+        vide et rien pour comprendre."""
+        app = fake_display_errors_app
+        app.display_errors("Le chat dort, enfin.", "Le chat dort enfin", penalize=True)
+        app._show_no_anomaly.assert_called_once()
+        app._create_error_ui.assert_not_called()
+        app.lose_points.assert_not_called()
+
+
+class TestElidedWordLabels:
+    """« l'esprit » se découpe en deux mots (le comparateur ignore la
+    ponctuation), et l'enfant lisait « Anomalie: 'l' » — incompréhensible."""
+
+    def test_apostrophe_is_kept_in_the_displayed_word(self, fake_display_errors_app):
+        app = fake_display_errors_app
+        app.display_errors("dans les esprits de mes amis", "dans l'esprit de mes amis", penalize=True)
+        labels = [call.args[0] for call in app._create_error_ui.call_args_list]
+        assert "Anomalie: « l' »" in labels
+        # Le guillemet français évite la collision « 'l'' » entre la citation et
+        # l'apostrophe d'élision, illisible en monospace.
+        assert "Anomalie: « l »" not in labels
+
+    def test_typographic_apostrophe_is_kept_too(self, fake_display_errors_app):
+        app = fake_display_errors_app
+        app.display_errors("dans les esprits", "dans l’esprit", penalize=True)
+        labels = [call.args[0] for call in app._create_error_ui.call_args_list]
+        assert any("l’" in label for label in labels)
+
+    def test_missing_elided_word_keeps_its_apostrophe(self, fake_display_errors_app):
+        app = fake_display_errors_app
+        app.display_errors("il garde l'espoir", "il garde espoir", penalize=True)
+        labels = [call.args[0] for call in app._create_error_ui.call_args_list]
+        assert any(label.startswith("Signal manquant: « l'") for label in labels)
+
+    def test_plain_word_is_unchanged(self, fake_display_errors_app):
+        app = fake_display_errors_app
+        app.display_errors("Le chat noir dort", "Le chien noir dort", penalize=True)
+        assert app._create_error_ui.call_args.args[0] == "Anomalie: « chien »"

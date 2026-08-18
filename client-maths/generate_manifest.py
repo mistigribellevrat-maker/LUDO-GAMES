@@ -27,6 +27,14 @@ def generate_manifest(directory=".", extra_dirs=None):
         # Progression du joueur : propre a chaque PC.
         "user_profile.json",
 
+        # Journal d'execution : genere sur le PC du joueur (voir commun/logs.py).
+        # Sans cette exclusion, le journal du poste de dev partirait chez tout le
+        # monde et ecraserait le leur a chaque mise a jour.
+        "game.log",
+
+        # Notes destinees au developpeur (ou deposer les videos et les avatars).
+        "A_LIRE.txt",
+
         # Dev-only files, inutiles au joueur
         ".gitignore",
         "pytest.ini",

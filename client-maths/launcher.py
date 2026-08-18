@@ -149,9 +149,16 @@ class GameLauncher:
 
         try:
             self.install_dependencies()
-            # We assume main.py is the entry point.
-            # sys.executable is the path to the current python interpreter.
-            subprocess.Popen([sys.executable, self.GAME_EXECUTABLE])
+            # main.py est le point d'entree. On prefere pythonw.exe (meme dossier
+            # que l'interpreteur courant) a python.exe : sinon une fenetre
+            # console noire reste ouverte derriere le jeu pendant toute la
+            # partie. CREATE_NO_WINDOW couvre le cas ou pythonw est absent.
+            interpreter = sys.executable
+            pythonw = os.path.join(os.path.dirname(interpreter), "pythonw.exe")
+            if os.path.isfile(pythonw):
+                interpreter = pythonw
+            subprocess.Popen([interpreter, self.GAME_EXECUTABLE],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.root.after(1000, self.root.destroy) # Close launcher after a delay
         except Exception as e:
             showerror("Erreur de lancement", f"Impossible de démarrer le jeu.\nAssurez-vous que {self.GAME_EXECUTABLE} existe.\n{e}")

@@ -2,3 +2,5 @@ gTTS==2.5.1
 pygame==2.6.0
 requests==2.32.3
 Pillow==10.4.0
+imageio==2.34.2
+imageio-ffmpeg==0.5.1

@@ -2,7 +2,6 @@
 
 import logging
 import os
-import queue
 import subprocess
 import sys
 import threading
@@ -20,216 +19,14 @@ from google.genai import types as genai_types
 import requests
 from gtts import gTTS, gTTSError
 import pygame
-import imageio
-from PIL import Image, ImageTk
+
+# Lecteur vidéo partagé (commun/video.py) : il vivait ici, il sert désormais
+# aussi au Hub et au jeu de maths. Une seule copie de ce code sensible au
+# threading Tk, pas trois.
+from video import ControlledVideoPlayer
 
 logger = logging.getLogger(__name__)
 
-
-# --- Classe Helper pour le service Vidéo ---
-class ControlledVideoPlayer:
-    """Lit une vidéo dans un widget ``tk.Label`` sans jamais toucher Tk hors thread principal.
-
-    Le thread worker se contente de décoder/redimensionner les frames (opérations
-    CPU pures, thread-safe) et les dépose dans une ``queue.Queue``. Le rendu Tk
-    (``label.config``, création de ``ImageTk.PhotoImage``) se fait exclusivement
-    depuis le thread principal, piloté par ``label.after(...)``.
-
-    Pour les vidéos qui bouclent (``loop=True``), le thread worker tente de
-    pré-décoder l'intégralité des frames une seule fois (mise en cache). Si la
-    vidéo est trop volumineuse pour tenir sous ``MAX_CACHE_BYTES``, on retombe
-    sur un flux (streaming) frame par frame classique.
-    """
-
-    # Plafond mémoire pour le cache de frames pré-décodées (frames redimensionnées,
-    # RGB 3 octets/pixel). Au-delà, on repasse en streaming pour éviter d'exploser la RAM.
-    MAX_CACHE_BYTES = 64 * 1024 * 1024  # 64 Mo
-    QUEUE_MAXSIZE = 2
-    POLL_INTERVAL_MS = 10
-
-    def __init__(
-        self,
-        label: tk.Label,
-        video_path: str,
-        size: tuple[int, int],
-        loop: bool = True,
-        fps: int = 24,
-    ) -> None:
-        self.label = label
-        self.path = video_path
-        self.size = size
-        self.loop = loop
-        self.fps = fps
-        self.delay_s = 1.0 / self.fps if self.fps > 0 else 1.0 / 24
-        self.thread: threading.Thread | None = None
-        self.is_running = False
-        self._frame_queue: queue.Queue = queue.Queue(maxsize=self.QUEUE_MAXSIZE)
-        self._poll_job: str | None = None
-        self._current_photo: ImageTk.PhotoImage | None = None
-        self._cache: list[ImageTk.PhotoImage] | None = None
-        self._cache_index = 0
-        self._cache_next_time = 0.0
-        # Jeton de session : incrémenté à chaque play()/stop() pour invalider les
-        # callbacks after() et les messages du thread worker devenus obsolètes.
-        self._session = 0
-
-    # ---- API publique ----
-    def play(self) -> None:
-        if self.is_running:
-            return
-        self.is_running = True
-        self._session += 1
-        session = self._session
-        self._cache = None
-        self._cache_index = 0
-        while not self._frame_queue.empty():
-            try:
-                self._frame_queue.get_nowait()
-            except queue.Empty:
-                break
-        self.thread = threading.Thread(target=self._decode_worker, args=(session,), daemon=True)
-        self.thread.start()
-        self._schedule_poll(session)
-
-    def stop(self) -> None:
-        self.is_running = False
-        self._session += 1  # invalide tout callback after() ou message worker en vol
-        if self._poll_job is not None:
-            try:
-                self.label.after_cancel(self._poll_job)
-            except tk.TclError:
-                pass
-            self._poll_job = None
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=0.2)
-        self._cache = None
-
-    # ---- Thread worker : décodage/redimensionnement uniquement, jamais de Tk ici ----
-    def _decode_worker(self, session: int) -> None:
-        try:
-            if self.loop:
-                cached = self._try_build_cache(session)
-                if cached is not None:
-                    self._post_cache(cached, session)
-                    return
-            self._stream_frames(session)
-        except (OSError, ValueError, RuntimeError, StopIteration) as e:
-            logger.warning("Erreur de lecture vidéo (%s): %s", self.path, e)
-            self.is_running = False
-
-    def _try_build_cache(self, session: int) -> list[Image.Image] | None:
-        """Pré-décode toute la vidéo en mémoire si elle tient sous MAX_CACHE_BYTES."""
-        reader = None
-        frames: list[Image.Image] = []
-        frame_cost = self.size[0] * self.size[1] * 3
-        total_bytes = 0
-        try:
-            reader = imageio.get_reader(self.path)
-            for frame in reader:
-                if not self.is_running or session != self._session:
-                    return None
-                total_bytes += frame_cost
-                if total_bytes > self.MAX_CACHE_BYTES:
-                    return None  # trop volumineux : on laissera le streaming prendre le relais
-                image = Image.fromarray(frame).resize(self.size, Image.Resampling.BILINEAR)
-                frames.append(image)
-        finally:
-            if reader is not None:
-                reader.close()
-        return frames or None
-
-    def _post_cache(self, frames: list[Image.Image], session: int) -> None:
-        if not self.is_running or session != self._session:
-            return
-        self._frame_queue.put(("cache", frames))
-
-    def _stream_frames(self, session: int) -> None:
-        """Décode et cadence les frames sur une horloge absolue (pas de dérive)."""
-        reader = None
-        try:
-            reader = imageio.get_reader(self.path)
-            while self.is_running and session == self._session:
-                start = time.monotonic()
-                frame_index = 0
-                produced_any = False
-                for frame in reader:
-                    if not self.is_running or session != self._session:
-                        return
-                    produced_any = True
-                    image = Image.fromarray(frame).resize(self.size, Image.Resampling.BILINEAR)
-                    target_time = start + frame_index * self.delay_s
-                    now = time.monotonic()
-                    if target_time > now:
-                        time.sleep(target_time - now)
-                    frame_index += 1
-                    try:
-                        self._frame_queue.put(("frame", image), timeout=1.0)
-                    except queue.Full:
-                        pass  # le thread principal est en retard : on laisse tomber cette frame
-                if not self.loop or not produced_any:
-                    self.is_running = False
-                    return
-        finally:
-            if reader is not None:
-                reader.close()
-
-    # ---- Thread principal : rendu Tk exclusivement ici ----
-    def _schedule_poll(self, session: int) -> None:
-        if not self.is_running or session != self._session:
-            return
-        try:
-            self._poll_job = self.label.after(self.POLL_INTERVAL_MS, self._poll, session)
-        except tk.TclError:
-            pass
-
-    def _poll(self, session: int) -> None:
-        self._poll_job = None
-        if not self.is_running or session != self._session:
-            return
-        try:
-            kind, payload = self._frame_queue.get_nowait()
-        except queue.Empty:
-            self._schedule_poll(session)
-            return
-        if kind == "cache":
-            self._cache = [ImageTk.PhotoImage(img) for img in payload]
-            self._cache_index = 0
-            self._cache_next_time = time.monotonic()
-            self._play_cache(session)
-            return
-        self._show_image(payload)
-        self._schedule_poll(session)
-
-    def _show_image(self, pil_image: Image.Image) -> None:
-        try:
-            photo = ImageTk.PhotoImage(pil_image)
-            self.label.config(image=photo)
-            self.label.image = photo  # garde-fou anti-GC : référence conservée sur le widget
-            self._current_photo = photo
-        except tk.TclError:
-            pass
-
-    def _play_cache(self, session: int) -> None:
-        if not self.is_running or session != self._session or not self._cache:
-            return
-        try:
-            photo = self._cache[self._cache_index]
-            self.label.config(image=photo)
-            self.label.image = photo  # garde-fou anti-GC
-            self._current_photo = photo
-        except tk.TclError:
-            return
-        self._cache_index = (self._cache_index + 1) % len(self._cache)
-        self._cache_next_time += self.delay_s
-        now = time.monotonic()
-        # Resynchronise si on a beaucoup dérivé (ex : mise en veille système)
-        if self._cache_next_time < now - self.delay_s:
-            self._cache_next_time = now
-        delay_ms = max(0, int((self._cache_next_time - now) * 1000))
-        try:
-            self._poll_job = self.label.after(delay_ms, self._play_cache, session)
-        except tk.TclError:
-            pass
 
 # --- Énumération pour les états Vidéo ---
 class VideoState(Enum):
@@ -366,6 +163,15 @@ class GeminiService:
     # d'environnement GEMINI_MODEL (pratique pour tester un autre modèle).
     DEFAULT_MODEL_NAME = "gemini-3.5-flash-lite"
 
+    # Niveau de réflexion du modèle (thinking). En HIGH, le modèle « réfléchit »
+    # davantage avant de répondre : dictées mieux calibrées sur le niveau
+    # scolaire demandé, et surtout explications de fautes plus justes — c'est un
+    # outil pédagogique, une explication approximative apprend une bêtise à
+    # l'enfant. Le prix : des réponses plus lentes (d'où les timeouts relevés
+    # ci-dessous) et un peu plus de jetons facturés.
+    # Surchargeable sans toucher au code : GEMINI_THINKING_LEVEL=MINIMAL|LOW|MEDIUM|HIGH.
+    DEFAULT_THINKING_LEVEL = "HIGH"
+
     # Préfixe EXACT attendu par main.py (_GEMINI_FAILURE_PREFIX) pour détecter un
     # échec de get_error_explanation / get_insertion_explanation. Ne pas modifier
     # cette chaîne sans mettre à jour main.py en conséquence.
@@ -376,8 +182,11 @@ class GeminiService:
     # sur un thread worker côté main.py. Transmis via
     # genai.types.GenerateContentConfig(http_options=genai.types.HttpOptions(timeout=ms))
     # — HttpOptions.timeout est en MILLISECONDES (vérifié dans le SDK installé).
-    DICTATION_TIMEOUT_S = 25
-    EXPLANATION_TIMEOUT_S = 15
+    # Relevés (25 -> 45 et 15 -> 30) en passant le modèle en réflexion HIGH : la
+    # phase de réflexion s'ajoute au temps de génération, et un timeout se
+    # traduit à l'écran par une erreur pour l'enfant.
+    DICTATION_TIMEOUT_S = 45
+    EXPLANATION_TIMEOUT_S = 30
 
     # Raisons d'arrêt du modèle qui signalent un contenu bloqué par les filtres de
     # sécurité (plutôt qu'une génération normale) : voir genai.types.FinishReason.
@@ -463,11 +272,29 @@ class GeminiService:
         ``if __name__ == "__main__":`` de main.py), pas pendant une partie.
         """
         model_name = os.getenv("GEMINI_MODEL", self.DEFAULT_MODEL_NAME)
+        self.thinking_level = self._resolve_thinking_level()
         try:
             self.client = genai.Client(api_key=api_key)
             self.model_name = model_name
         except Exception as e:
             raise ConnectionError(f"Erreur de configuration de Gemini. Vérifiez votre clé API. Détails: {e}")
+
+    @classmethod
+    def _resolve_thinking_level(cls):
+        """Niveau de réflexion demandé au modèle, validé contre l'énumération du
+        SDK. Une valeur inconnue dans GEMINI_THINKING_LEVEL retombe sur HIGH avec
+        un avertissement, plutôt que de faire échouer chaque appel : le jeu doit
+        rester jouable même après une faute de frappe dans le .env."""
+        raw = (os.getenv("GEMINI_THINKING_LEVEL") or cls.DEFAULT_THINKING_LEVEL).strip().upper()
+        try:
+            return genai_types.ThinkingLevel(raw)
+        except ValueError:
+            logger.warning(
+                "GEMINI_THINKING_LEVEL='%s' inconnu, repli sur %s. Valeurs acceptées : %s",
+                raw, cls.DEFAULT_THINKING_LEVEL,
+                ", ".join(level.value for level in genai_types.ThinkingLevel),
+            )
+            return genai_types.ThinkingLevel(cls.DEFAULT_THINKING_LEVEL)
 
     def _generate(self, prompt: str, timeout_s: float):
         """Appel bas niveau au SDK, avec timeout explicite en millisecondes."""
@@ -475,7 +302,8 @@ class GeminiService:
             model=self.model_name,
             contents=prompt,
             config=genai_types.GenerateContentConfig(
-                http_options=genai_types.HttpOptions(timeout=int(timeout_s * 1000))
+                http_options=genai_types.HttpOptions(timeout=int(timeout_s * 1000)),
+                thinking_config=genai_types.ThinkingConfig(thinking_level=self.thinking_level),
             ),
         )
 

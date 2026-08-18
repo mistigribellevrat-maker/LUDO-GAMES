@@ -33,6 +33,8 @@ from scoring import grade_info
 from campaign import CampaignRunner
 from leaderboard import LeaderboardWindow
 from avatar_picker import AvatarPicker, list_avatars, resolve_avatar, thumbnail_path
+from video import VideoBanner
+from logs import log_tk_exceptions, setup_file_logging
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +53,10 @@ class HubApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("BASE DE COMMANDEMENT // CHOIX DE LA MISSION")
-        self.root.geometry("900x600")
-        self.root.minsize(760, 560)
+        # Hauteur augmentée pour loger le bandeau vidéo 16/9 du haut (270 px)
+        # sans comprimer les cartes de jeu.
+        self.root.geometry("900x880")
+        self.root.minsize(820, 820)
         self.root.configure(bg=PALETTE["bg"])
 
         self.campaign: CampaignRunner | None = None
@@ -341,9 +345,28 @@ class HubApp:
 
     # --- UI ------------------------------------------------------------
 
+    # Bandeau vidéo 16/9 du haut d'écran. Déposer le fichier à cet emplacement
+    # suffit à l'activer ; tant qu'il n'existe pas, la zone garde sa place (voir
+    # commun/video.py::VideoBanner) pour que l'écran ne change pas de forme le
+    # jour où la vidéo arrive.
+    BANNER_VIDEO_PATH = os.path.join("assets", "videos", "hub.mp4")
+    BANNER_WIDTH = 480  # 16/9 -> 270 px de haut
+
     def _build_ui(self) -> None:
+        banner_row = tk.Frame(self.root, bg=PALETTE["bg"])
+        banner_row.pack(fill=tk.X, pady=(18, 4))
+        self.banner = VideoBanner(
+            banner_row,
+            video_path=os.path.join(_HERE, self.BANNER_VIDEO_PATH),
+            width=self.BANNER_WIDTH,
+            placeholder="ÉCRAN DE COMMANDEMENT\n(vidéo 16/9)",
+            bg=PALETTE["bg_deep"], fg=PALETTE["faint"], font=(FONT_BODY, 10, "italic"),
+            highlightthickness=1, highlightbackground=PALETTE["border"],
+        )
+        self.banner.pack()
+
         header = tk.Frame(self.root, bg=PALETTE["bg"])
-        header.pack(fill=tk.X, padx=28, pady=(24, 8))
+        header.pack(fill=tk.X, padx=28, pady=(10, 8))
         SectionHeader(header, eyebrow="Base de commandement",
                       title="Choisissez votre mission", bg=PALETTE["bg"]).pack(anchor="w")
 
@@ -501,9 +524,20 @@ class HubApp:
         # Le hub tourne avec le python systeme, mais chaque jeu a ses paquets
         # installes dans son propre venv/. Utiliser sys.executable ici
         # lancerait le jeu sans pygame/PIL/etc.
-        venv_python = os.path.join(game_dir, "venv", "Scripts", "python.exe")
-        python_exe = venv_python if os.path.isfile(venv_python) else sys.executable
-        return subprocess.Popen([python_exe, "main.py"], cwd=game_dir)
+        # pythonw.exe (variante sans console) est prefere a python.exe : sinon
+        # chaque jeu lance depuis le Hub ouvrait une fenetre noire a cote de lui.
+        scripts_dir = os.path.join(game_dir, "venv", "Scripts")
+        python_exe = next(
+            (os.path.join(scripts_dir, exe) for exe in ("pythonw.exe", "python.exe")
+             if os.path.isfile(os.path.join(scripts_dir, exe))),
+            sys.executable,
+        )
+        # Filet supplementaire quand on retombe sur sys.executable (python.exe) :
+        # CREATE_NO_WINDOW empeche la console d'apparaitre. Le drapeau n'existe
+        # que sous Windows.
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.Popen([python_exe, "main.py"], cwd=game_dir,
+                                creationflags=creation_flags)
 
     def play_single(self, game: dict) -> None:
         self._set_busy(f"{game['label']} en cours — revenez ici à la fermeture du jeu.")
@@ -615,7 +649,11 @@ class HubApp:
 
 
 def main() -> None:
+    # Sans console (pythonw, voir LANCER.bat), le journal fichier est la seule
+    # trace en cas d'erreur.
+    setup_file_logging(_HERE)
     root = tk.Tk()
+    log_tk_exceptions(root)
     HubApp(root)
     root.mainloop()
 

@@ -41,6 +41,9 @@ from scoring import (
     clamp_ratio, compute_rewards, grade_info,
 )
 from badges import BADGES as SHARED_BADGES, badge_name
+from avatars import avatars_dir, list_avatars
+from video import play_intro
+from logs import log_tk_exceptions, setup_file_logging
 from ui_components import CityManager, HighScoreWindow
 from theme import PALETTE, FONT_DISPLAY, FONT_BODY, FONT_MONO
 from ui_widgets import NeonButton, RoundedFrame, SectionHeader, SegmentedControl, ShieldMeter
@@ -122,14 +125,12 @@ class DictationApp:
         self._sentences_needing_correction = 0
         self._helps_used_this_dictation = 0
         # Avatars : identité de joueur partagée entre tous les jeux (voir
-        # commun/assets/avatars/ et le champ avatar_path global côté serveur).
-        _avatars_dir = os.path.join(COMMUN_DIR, "assets", "avatars") if COMMUN_DIR else os.path.join("assets", "videos")
-        self.avatar_options = [
-            os.path.join(_avatars_dir, "1.mp4"),
-            os.path.join(_avatars_dir, "1a.mp4"),
-            os.path.join(_avatars_dir, "1b.mp4"),
-            os.path.join(_avatars_dir, "1c.mp4"),
-        ]
+        # commun/avatars.py et le champ avatar_path global côté serveur).
+        # Liste découverte dans le dossier, plus codée en dur : déposer un couple
+        # X.mp4 + X.jpg dans commun/assets/avatars/ suffit à ajouter un avatar,
+        # ici comme dans le Hub.
+        _avatars_dir = avatars_dir(COMMUN_DIR) if COMMUN_DIR else os.path.join("assets", "videos")
+        self.avatar_options = list_avatars(COMMUN_DIR) if COMMUN_DIR else []
         # Dossier des miniatures d'avatars (mêmes noms de base, extension .jpg)
         self.avatar_image_dir = _avatars_dir
         # Cache pour éviter que les images ne soient collectées
@@ -158,15 +159,37 @@ class DictationApp:
         self._refresh_inventory_ui()
         self._update_xp_display()
         self.avatar_video_service.set_startup_video(self.avatar_path if self.avatar_path and os.path.exists(self.avatar_path) else None)
-        welcome_message = "Systèmes en ligne. Boucliers du dôme à 100%. En attente de vos ordres, Commandant."
-        self.tts_service.speak(welcome_message)
-        
         self.music_service.play_background()
-        
-        # Afficher l'écran d'intro (5 secondes), la musique est déjà lancée
-        self._show_start_splash()
         self.avatar_video_service.set_video(VideoState.STARTUP)
         self.event_video_service.set_video(VideoState.IDLE)
+
+        # Intro vidéo 16/9 en pop-up, puis message d'accueil. Le message est
+        # décalé après l'intro : les deux en même temps se parleraient dessus.
+        # Sans fichier vidéo, play_intro appelle directement la suite — le jeu
+        # démarre donc normalement tant qu'aucune intro n'a été déposée.
+        self._play_intro_video()
+
+    # Intro jouée au démarrage : déposer le fichier à cet emplacement suffit à
+    # l'activer, aucun réglage à faire (voir commun/video.py::play_intro).
+    INTRO_VIDEO_PATH = os.path.join("assets", "videos", "intro.mp4")
+
+    def _play_intro_video(self) -> None:
+        def _after_intro() -> None:
+            if self._closing:
+                return
+            self.tts_service.speak(
+                "Systèmes en ligne. Boucliers du dôme à 100%. "
+                "En attente de vos ordres, Commandant."
+            )
+
+        play_intro(
+            self.root,
+            os.path.join(_HERE, self.INTRO_VIDEO_PATH),
+            on_close=_after_intro,
+            bg=self.colors['bg'],
+            hint_fg=self.colors['muted'],
+            font=(FONT_BODY, 9, 'italic'),
+        )
 
     def _setup_theme(self):
         # Palette centralisée (theme.py) : `self.colors` reste un dict plat pour
@@ -223,44 +246,9 @@ class DictationApp:
                         bordercolor=c['border'], arrowcolor=c['muted'])
         style.map('Vertical.TScrollbar', background=[('active', c['panel3'])])
 
-    def _show_start_splash(self):
-        """Affiche l'image d'intro pendant 5 secondes si disponible."""
-        try:
-            # Chemins possibles
-            candidates = [
-                os.path.join('assets', 'images', 'intro.png'),
-                'intro.png',
-            ]
-            img_path = next((p for p in candidates if os.path.exists(p)), None)
-            if not img_path:
-                return
-            # Charger l'image
-            im = Image.open(img_path)
-            # Créer une fenêtre splash sans bordure
-            splash = tk.Toplevel(self.root)
-            splash.overrideredirect(True)
-            splash.configure(bg=self.colors['bg'])
-            splash.attributes('-topmost', True)
-            # Dimensionner l'image pour tenir dans une zone raisonnable
-            max_w, max_h = 800, 450
-            iw, ih = im.size
-            scale = min(max_w / iw, max_h / ih, 1.0)
-            if scale < 1.0:
-                im = im.resize((int(iw * scale), int(ih * scale)), Image.Resampling.LANCZOS)
-            ph = ImageTk.PhotoImage(im)
-            lbl = tk.Label(splash, image=ph, bg=self.colors['bg'])
-            lbl.image = ph  # éviter GC
-            lbl.pack(padx=8, pady=8)
-            splash.update_idletasks()
-            # Centrer sur la fenêtre principale
-            x = self.root.winfo_x() + (self.root.winfo_width() - splash.winfo_reqwidth()) // 2
-            y = self.root.winfo_y() + (self.root.winfo_height() - splash.winfo_reqheight()) // 2
-            splash.geometry(f"+{x}+{y}")
-            # Planifier la fermeture après 5s
-            self.root.after(5000, lambda: (splash.destroy() if splash.winfo_exists() else None))
-        except Exception:
-            # En cas d'erreur, ignorer silencieusement pour ne pas bloquer le démarrage
-            pass
+    # L'écran d'intro (assets/images/intro.png affiché 5 secondes au démarrage)
+    # a été retiré : il retardait l'accès au jeu à chaque lancement. Le fichier
+    # reste dans assets/images/ si on veut le remettre un jour.
 
     def _setup_widgets(self):
         c = self.colors
@@ -406,6 +394,11 @@ class DictationApp:
         self.errors_frame = RoundedFrame(left_column, padding=12, bg=c['bg'])
         self.errors_frame.grid(row=1, column=1, sticky='nsew', padx=(6, 0))
         SectionHeader(self.errors_frame.inner, eyebrow="Diagnostic", title="Analyse des anomalies").pack(anchor='w', padx=6, pady=(6, 2))
+        # La liste des anomalies vit dans son propre conteneur : _clear_errors_frame
+        # vide ce conteneur, et non tout le panneau — sinon il emportait aussi le
+        # titre ci-dessus, dès le premier affichage.
+        self.errors_list = tk.Frame(self.errors_frame.inner, bg=c['panel2'])
+        self.errors_list.pack(fill=tk.BOTH, expand=True)
         self._clear_errors_frame()
 
         # --- Ville / HUD inférieur ---------------------------------------
@@ -729,8 +722,10 @@ class DictationApp:
             except Exception:
                 return None
 
-        # Construire une grille 2x2 de choix avec miniature + libellé
-        cols = 2
+        # Grille de choix (miniature + libellé). 4 colonnes : avec 8 avatars, une
+        # grille à 2 colonnes ferait 4 rangées et une boîte de dialogue plus haute
+        # que l'écran. Le nombre d'avatars n'est pas figé (voir commun/avatars.py).
+        cols = 4
         for idx, opt in enumerate(self.avatar_options):
             exists = os.path.exists(opt)
             r, cc = divmod(idx, cols)
@@ -866,6 +861,20 @@ class DictationApp:
 
     def _clamp_index(self, idx: int, text_len: int) -> int:
         return max(0, min(idx or 0, max(0, text_len - 1)))
+
+    @staticmethod
+    def _display_word(text: str, start: int, end: int) -> str:
+        """Mot tel qu'il doit APPARAÎTRE dans le diagnostic.
+
+        Le comparateur ignore la ponctuation : « l'esprit » se découpe en deux
+        mots, « l » et « esprit ». Afficher « Anomalie: 'l' » à un enfant ne
+        veut rien dire — on rattache donc l'apostrophe d'élision au mot pour
+        l'affichage, sans rien changer au découpage ni au comptage des fautes.
+        """
+        word = text[start:end]
+        if end < len(text) and text[end] in "'’":
+            word += text[end]
+        return word
 
     def _tokenize_words(self, text: str):
         """Retourne une liste de tuples (mot, (start, end)) en ignorant la ponctuation.
@@ -1090,12 +1099,13 @@ class DictationApp:
             self.validate_button.config(state=tk.NORMAL)
 
     def display_errors(self, original: str, user: str, penalize: bool = True) -> None:
-        self._clear_errors_frame()
+        self._clear_errors_frame(show_placeholder=False)
         self.user_text.tag_remove("error", "1.0", tk.END)
         # Tokeniser en ignorant la ponctuation, mais en conservant les positions sur le texte utilisateur
         orig_tokens = self._tokenize_words(original)
         user_tokens = self._tokenize_words(user)
         original_words = [w for w, _ in orig_tokens]
+        orig_spans = [span for _, span in orig_tokens]
         user_words = [w for w, _ in user_tokens]
         user_spans = [span for _, span in user_tokens]
         # Comparaison insensible à la casse
@@ -1126,7 +1136,7 @@ class DictationApp:
                         user_w = user_words[j1 + (i - i1)]
                         orig_w = original_words[i]
                         self._create_error_ui(
-                            f"Anomalie: '{user_w}'",
+                            f"Anomalie: « {self._display_word(user, cs, ce)} »",
                             user_w,
                             orig_w,
                             char_start=cs,
@@ -1135,8 +1145,9 @@ class DictationApp:
             elif tag == 'delete':
                 insert_pos = user_spans[j1][0] if (j1 < len(user_spans) and len(user) > 0) else len(user)
                 for i in range(i1, i2):
+                    os_, oe = orig_spans[i]
                     self._create_error_ui(
-                        f"Signal manquant: '{original_words[i]}'",
+                        f"Signal manquant: « {self._display_word(original, os_, oe)} »",
                         None,
                         original_words[i],
                         insert_pos=insert_pos,
@@ -1146,14 +1157,20 @@ class DictationApp:
                     cs, ce = user_spans[j]
                     user_w = user_words[j]
                     self._create_error_ui(
-                        f"Signal parasite: '{user_w}'",
+                        f"Signal parasite: « {self._display_word(user, cs, ce)} »",
                         user_w,
                         user_w,
                         is_insertion=True,
                         char_start=cs,
                         char_end=ce,
                     )
-        if mistake_count > 0:
+        if mistake_count == 0:
+            # Arrive quand la seule différence est de la ponctuation ou une
+            # majuscule (le comparateur de mots les ignore) : il faut le dire,
+            # sinon l'élève voit un panneau vide sans comprendre pourquoi sa
+            # phrase est refusée.
+            self._show_no_anomaly()
+        else:
             plural = "s" if mistake_count > 1 else ""
             self.status_label.config(text=f"{mistake_count} anomalie{plural} détectée{plural}.", foreground=self.colors['warning'])
             if penalize:
@@ -1353,15 +1370,24 @@ class DictationApp:
             sentence = self.dictation_sentences[self.current_sentence_index]
             self.tts_service.speak(sentence, is_dictation_sentence=True)
             
-    def _clear_errors_frame(self):
-        for widget in self.errors_frame.inner.winfo_children():
+    def _clear_errors_frame(self, show_placeholder: bool = True):
+        """Vide la liste des anomalies.
+
+        `show_placeholder=False` quand on s'apprête à y écrire des anomalies :
+        sinon « Aucune anomalie détectée. » restait affiché AU-DESSUS de la
+        liste des anomalies, ce qui se contredisait à l'écran."""
+        for widget in self.errors_list.winfo_children():
             widget.destroy()
-        tk.Label(self.errors_frame.inner, text="Aucune anomalie détectée.",
+        if show_placeholder:
+            self._show_no_anomaly()
+
+    def _show_no_anomaly(self):
+        tk.Label(self.errors_list, text="Aucune anomalie détectée.",
                  bg=self.colors['panel2'], fg=self.colors['muted'],
                  font=(FONT_BODY, 10, 'italic')).pack(anchor='w', padx=4, pady=2)
 
     def _create_error_ui(self, label_text, user_word, original_word_for_help, is_insertion=False, help_needed=True, char_start=None, char_end=None, insert_pos=None):
-        frame = tk.Frame(self.errors_frame.inner, bg=self.colors['panel2'])
+        frame = tk.Frame(self.errors_list, bg=self.colors['panel2'])
         frame.pack(fill=tk.X, pady=2, padx=4)
         fg = self.colors['warning'] if is_insertion else self.colors['text']
         error_label = tk.Label(frame, text=f"> {label_text}", bg=self.colors['panel2'],
@@ -1677,8 +1703,12 @@ class DictationApp:
 
 if __name__ == "__main__":
     try:
+        # Le jeu se lance sans console (pythonw, voir LANCER.bat) : sans journal
+        # fichier, une erreur au démarrage serait totalement invisible.
+        setup_file_logging(_HERE)
         load_dotenv()
         root = tk.Tk()
+        log_tk_exceptions(root)
         root.withdraw()
         
         api_key = os.getenv("GEMINI_API_KEY")
@@ -1696,7 +1726,10 @@ if __name__ == "__main__":
         root.deiconify()
         root.mainloop()
 
-    except ConnectionError as e: messagebox.showerror("Erreur de Connexion", str(e))
+    except ConnectionError as e:
+        logger.error("Démarrage impossible (connexion) : %s", e)
+        messagebox.showerror("Erreur de Connexion", str(e))
     except Exception as e:
+        logger.exception("Erreur critique au démarrage")
         messagebox.showerror("Erreur Inattendue", f"Une erreur critique est survenue au démarrage: {e}")
         if 'anticheat_service' in locals() and anticheat_service: anticheat_service.stop()

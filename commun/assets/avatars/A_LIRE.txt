@@ -1,0 +1,20 @@
+AJOUTER DES AVATARS
+===================
+
+Un avatar = DEUX fichiers de meme nom de base, dans ce dossier :
+
+    X.mp4    la video (utilisee comme avatar anime dans la dictee)
+    X.jpg    la miniature (Hub, jeu de maths, classement general)
+
+Exemple pour 4 avatars supplementaires : 2.mp4/2.jpg, 2a.mp4/2a.jpg,
+2b.mp4/2b.jpg, 2c.mp4/2c.jpg.
+
+Aucun changement de code n'est necessaire : la liste est relue a chaque
+demarrage, dans l'ordre alphabetique, et apparait automatiquement dans le
+selecteur du Hub ("Mon avatar") comme dans celui de la dictee.
+
+Un .mp4 SANS miniature .jpg est ignore (il s'afficherait comme une case vide) :
+toujours deposer les deux fichiers.
+
+Apres ajout, relancer generate_manifest.py dans client-dictee ET client-maths
+pour que les joueurs recoivent les nouveaux avatars via le launcher.

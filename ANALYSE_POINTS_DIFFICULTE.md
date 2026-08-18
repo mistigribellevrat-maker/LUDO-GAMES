@@ -159,7 +159,12 @@ fantaisiste/inapproprié est édulcoré ou remplacé par un thème neutre.
 ### 4.3. Technique
 
 - Modèle : `GEMINI_MODEL` (défaut `gemini-3.5-flash-lite`).
-- Timeouts : dictée 25 s, explication 15 s.
+- Réflexion : `GEMINI_THINKING_LEVEL` (défaut `HIGH`) — le modèle réfléchit avant
+  de répondre, ce qui cale mieux la dictée sur le niveau demandé et fiabilise
+  les explications de fautes (mesuré : 7,7 s pour une dictée CE1, 3,8 s pour une
+  explication).
+- Timeouts : dictée 45 s, explication 30 s — relevés pour absorber le temps de
+  réflexion ; un dépassement s'affiche comme une erreur à l'enfant.
 - Échec distingué (clé invalide / quota / réseau / filtres) via `_describe_error`.
 
 ---

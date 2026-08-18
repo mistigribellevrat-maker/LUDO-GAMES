@@ -36,6 +36,8 @@ from ui_widgets import NeonButton, RoundedFrame, SectionHeader, SegmentedControl
 from server_client import HighScoreService, load_server_config
 from scoring import GRADES as SHARED_GRADES, grade_name
 from badges import badge_name
+from video import play_intro
+from logs import log_tk_exceptions, setup_file_logging
 
 from problems import LEVELS, MathMission, compute_rewards, evaluate_badges
 from services import TTSService
@@ -360,9 +362,29 @@ class MathsApp:
         NeonButton(btn_row, text="Panthéon", command=self._open_high_scores,
                    variant="ghost", bg=PALETTE["panel2"], height=38).pack(side=tk.LEFT)
 
+        # Le briefing parlé attend la fin de l'intro vidéo : les deux en même
+        # temps se parleraient dessus. Sans fichier vidéo, _play_intro_video
+        # enchaîne immédiatement (voir commun/video.py::play_intro).
         if not self._intro_spoken:
             self._intro_spoken = True
+            self._play_intro_video()
+
+    # Intro jouée au démarrage : déposer le fichier à cet emplacement suffit à
+    # l'activer, aucun réglage à faire.
+    INTRO_VIDEO_PATH = os.path.join("assets", "videos", "intro.mp4")
+
+    def _play_intro_video(self) -> None:
+        def _after_intro() -> None:
             self.tts_service.speak(INTRO_TEXT.format(name=self.username))
+
+        play_intro(
+            self.root,
+            os.path.join(_HERE, self.INTRO_VIDEO_PATH),
+            on_close=_after_intro,
+            bg=PALETTE["bg"],
+            hint_fg=PALETTE["muted"],
+            font=(FONT_BODY, 9, "italic"),
+        )
 
     def _grade_name(self) -> str:
         """Grade militaire correspondant à l'XP courante. Le calcul vit dans
@@ -556,8 +578,11 @@ class MathsApp:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    # Sans console (pythonw, voir LANCER.bat), le journal fichier est la seule
+    # trace en cas d'erreur.
+    setup_file_logging(_HERE)
     root = tk.Tk()
+    log_tk_exceptions(root)
     MathsApp(root)
     root.mainloop()
 

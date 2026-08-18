@@ -1,0 +1,18 @@
+VIDEO D'INTRO DE LA DICTEE
+==========================
+
+Deposer ici un fichier nomme exactement :
+
+    intro.mp4
+
+Il sera joue une seule fois au demarrage du jeu, dans une fenetre pop-up au
+format 16/9, puis la fenetre se referme d'elle-meme et le briefing parle
+demarre. L'enfant peut passer l'intro a tout moment (clic, Echap, Entree ou
+Espace).
+
+Tant qu'aucun fichier n'est depose, le jeu demarre directement : rien a
+desactiver, rien a regler.
+
+Format conseille : MP4 (H.264), 16/9, 1280x720 ou 1920x1080.
+Apres avoir depose le fichier, relancer generate_manifest.py pour que les
+joueurs le recoivent via le launcher.

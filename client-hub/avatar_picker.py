@@ -7,13 +7,10 @@ façon — vidéo de démarrage en dictée, portrait dans la grille de maths. Il
 pouvait pourtant se changer que depuis la dictée, alors que le Hub est
 justement l'écran d'identité.
 
-Les fonctions de résolution (`list_avatars`, `resolve_avatar`,
-`thumbnail_path`) sont volontairement sans Tk : testables sans fenêtre.
-
-Note sur les chemins : la convention existante (dictée, maths, serveur) stocke
-un chemin ABSOLU vers le `.mp4`. Il n'est donc pas valable d'un PC à l'autre —
-`resolve_avatar` retombe pour cette raison sur une comparaison par nom de
-fichier, pour qu'un avatar choisi ailleurs reste reconnu ici.
+Ce module ne contient que l'écran de choix (Tk). Le catalogue lui-même — quels
+avatars existent, comment retrouver leur miniature — vit dans commun/avatars.py,
+partagé avec les jeux : ajouter des avatars ne demande donc aucun changement de
+code, ici comme ailleurs (voir commun/avatars.py).
 """
 
 import logging
@@ -25,64 +22,14 @@ from ui_widgets import NeonButton, RoundedFrame, SectionHeader
 
 logger = logging.getLogger(__name__)
 
-# Un avatar = une vidéo .mp4 (utilisée par la dictée) + une miniature .jpg de
-# même nom de base (utilisée partout ailleurs).
-AVATAR_EXT = ".mp4"
-THUMB_EXT = ".jpg"
-
-
-def avatars_dir(commun_dir: str) -> str:
-    return os.path.join(commun_dir, "assets", "avatars")
-
-
-def list_avatars(commun_dir: str) -> list:
-    """Avatars disponibles (chemins absolus vers le .mp4), triés par nom.
-
-    Découverte par le contenu du dossier plutôt que par une liste codée en dur :
-    déposer un nouveau couple `X.mp4` + `X.jpg` suffit à l'ajouter au choix,
-    sans toucher au code. Un .mp4 sans miniature est ignoré — il s'afficherait
-    comme une case vide dans le sélecteur."""
-    directory = avatars_dir(commun_dir or "")
-    if not os.path.isdir(directory):
-        return []
-    found = []
-    for name in sorted(os.listdir(directory)):
-        if not name.lower().endswith(AVATAR_EXT):
-            continue
-        path = os.path.join(directory, name)
-        if os.path.exists(thumbnail_path(path)):
-            found.append(path)
-    return found
-
-
-def thumbnail_path(avatar_path: str) -> str:
-    """Miniature .jpg d'un avatar (même nom de base que la vidéo)."""
-    base = os.path.splitext(avatar_path)[0]
-    return base + THUMB_EXT
-
-
-def avatar_label(avatar_path: str) -> str:
-    """Libellé lisible : « Avatar 1 », « Avatar 1a »… plutôt que « 1a.mp4 »."""
-    base = os.path.splitext(os.path.basename(avatar_path))[0]
-    return f"Avatar {base}"
-
-
-def resolve_avatar(avatar_path: str, options: list) -> str | None:
-    """Ramène un chemin d'avatar (venant du serveur ou d'un profil local) vers
-    l'option correspondante SUR CE PC.
-
-    Trois cas, dans l'ordre : chemin exact connu ; même nom de fichier à un
-    autre emplacement (avatar choisi sur un autre PC, ou dossier d'installation
-    différent) ; sinon None, à l'appelant de choisir un repli."""
-    if not avatar_path or not options:
-        return None
-    if avatar_path in options:
-        return avatar_path
-    wanted = os.path.basename(avatar_path).lower()
-    for option in options:
-        if os.path.basename(option).lower() == wanted:
-            return option
-    return None
+# Découverte, résolution de chemins et libellés vivent dans commun/avatars.py
+# (sans Tk, donc partagés avec la dictée et le jeu de maths). Ce module ne garde
+# que le sélecteur graphique, propre au Hub. Réexportés ici pour que les
+# appelants existants (main.py, leaderboard.py) n'aient qu'un import à faire.
+from avatars import (  # noqa: F401
+    AVATAR_EXT, THUMB_EXT, avatar_label, avatars_dir, default_avatar,
+    list_avatars, resolve_avatar, thumbnail_path,
+)
 
 
 class AvatarPicker(tk.Toplevel):

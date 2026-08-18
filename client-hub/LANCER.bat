@@ -45,10 +45,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo.
-python main.py
+echo Lancement du hub...
 
-echo.
-echo Le hub s'est ferme.
+REM --- Lancement sans fenetre console ---
+REM pythonw.exe lance le jeu sans console : cette fenetre disparait des que le
+REM jeu demarre, au lieu de rester ouverte derriere lui. Les messages d'erreur
+REM ne s'affichent donc plus ici, ils sont ecrits dans game.log a cote de ce
+REM fichier (voir commun/logs.py).
+if exist "venv\Scripts\pythonw.exe" (
+    start "" "venv\Scripts\pythonw.exe" main.py
+) else (
+    start "" pythonw main.py
+)
+
 popd
-pause
+exit /b 0

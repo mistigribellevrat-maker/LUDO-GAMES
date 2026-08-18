@@ -65,7 +65,11 @@ def fake_display_errors_app(fake_colors):
     app.lose_points = MagicMock()
     app._clear_errors_frame = MagicMock()
     app._create_error_ui = MagicMock()
+    app._show_no_anomaly = MagicMock()
     app._tokenize_words = DictationAppClass._tokenize_words.__get__(app)
+    # Vraie méthode (staticmethod pure) : c'est le libellé réellement affiché à
+    # l'enfant qu'on veut vérifier, pas une imitation.
+    app._display_word = DictationAppClass._display_word
     app.display_errors = DictationAppClass.display_errors.__get__(app)
     return app
 
