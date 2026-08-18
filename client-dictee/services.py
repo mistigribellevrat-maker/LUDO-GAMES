@@ -125,7 +125,11 @@ class AntiCheatService:
         while not self.stop_event.is_set():
             if sys.platform == "win32":
                 try:
-                    subprocess.run(["taskkill", "/F", "/IM", "chrome.exe", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", "chrome.exe", "/T"],
+                        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
                 except OSError as e:
                     logger.debug("taskkill indisponible ou a échoué : %s", e)
             time.sleep(2)
