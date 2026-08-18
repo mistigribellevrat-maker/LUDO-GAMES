@@ -560,13 +560,25 @@ class HubApp:
             messagebox.showerror("Erreur de lancement", f"Impossible de lancer {game['label']} :\n{e}")
             self._set_idle()
             return
+        # Le Hub se masque pendant la partie et réapparaît à la fermeture du
+        # jeu (_watch_single) : l'enfant ne voit qu'un seul jeu à la fois, et
+        # retrouve sa base de commandement à la fin.
+        self.root.withdraw()
         self._watch_single(proc)
+
+    def _restore_hub(self) -> None:
+        try:
+            self.root.deiconify()
+            self.root.lift()
+        except tk.TclError:
+            pass
 
     def _watch_single(self, proc: subprocess.Popen) -> None:
         if proc.poll() is None:
             self._single_watch_job = self.root.after(300, lambda: self._watch_single(proc))
         else:
             self._single_watch_job = None
+            self._restore_hub()
             self._set_idle()
             # Le jeu vient de pousser sa progression au serveur : on la relit
             # pour que crédits, XP et grade soient à jour dès le retour à la
@@ -613,6 +625,9 @@ class HubApp:
             on_finished=self._campaign_finished,
         )
         self.campaign.start()
+        # Le Hub se masque pendant toute la campagne et réapparaît à la fin
+        # (_campaign_finished), avec le récapitulatif des gains.
+        self.root.withdraw()
         self._poll_campaign()
 
     def _poll_campaign(self) -> None:
@@ -626,6 +641,7 @@ class HubApp:
 
     def _campaign_finished(self) -> None:
         self._campaign_watch_job = None
+        self._restore_hub()
         self._set_idle()
         self._identify_with_server()  # rafraîchit crédits/XP/grade de l'en-tête
         after = self._read_progress_snapshot(GAMES[-1]["dir"])
