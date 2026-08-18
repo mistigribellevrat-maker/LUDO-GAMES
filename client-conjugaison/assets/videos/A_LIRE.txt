@@ -1,18 +1,39 @@
-VIDEO D'INTRO DE LA TOURELLE DE DEFENSE
-========================================
+VIDEOS DE LA TOURELLE DE DEFENSE
+==================================
 
+Trois emplacements possibles, chacun optionnel independamment des autres.
+Tant qu'un fichier n'est pas depose, l'ecran correspondant s'affiche
+normalement (rien a desactiver, rien a regler).
+
+1. INTRO (au demarrage du jeu)
+-------------------------------
 Deposer ici un fichier nomme exactement :
 
     intro.mp4
 
-Il sera joue une seule fois au demarrage du jeu (avec le son, si la piste
-audio existe), dans une fenetre pop-up au format 16/9, puis la fenetre se
-referme d'elle-meme. L'enfant peut passer l'intro a tout moment (clic,
-Echap, Entree ou Espace).
+Jouee une seule fois au demarrage, en fenetre pop-up 16/9 (avec le son, si
+la piste audio existe), puis se ferme d'elle-meme et l'ecran de choix de
+mission s'affiche. Passable a tout moment (clic, Echap, Entree ou Espace).
 
-Tant qu'aucun fichier n'est depose, le jeu demarre directement : rien a
-desactiver, rien a regler.
+2. VICTOIRE (secteur securise)
+---------------------------------
+Deposer ici un fichier nomme exactement :
 
-Format conseille : MP4 (H.264), 16/9, 1280x720 ou 1920x1080.
-Apres avoir depose le fichier, relancer generate_manifest.py pour que les
+    victoire.mp4
+
+Jouee une seule fois juste avant l'ecran de resultat, quand la mission est
+gagnee.
+
+3. DEFAITE (dome perce)
+--------------------------
+Deposer ici un fichier nomme exactement :
+
+    defaite.mp4
+
+Meme principe que victoire.mp4, mais jouee quand la mission est perdue.
+
+---
+
+Format conseille (les 3 fichiers) : MP4 (H.264), 16/9, 1280x720 ou 1920x1080.
+Apres avoir depose un fichier, relancer generate_manifest.py pour que les
 joueurs le recoivent via le launcher.

@@ -55,10 +55,14 @@ class HubApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("BASE DE COMMANDEMENT // CHOIX DE LA MISSION")
-        # Hauteur augmentée pour loger le bandeau vidéo 16/9 du haut (270 px)
-        # sans comprimer les cartes de jeu.
-        self.root.geometry("900x880")
-        self.root.minsize(820, 820)
+        # Largeur dimensionnée pour la rangée de cartes de jeu (GAMES) : chaque
+        # carte a besoin d'environ 260-300 px pour rester lisible (titre,
+        # tagline). pack(side=LEFT, expand=True) ne réduit jamais une carte
+        # sous sa largeur naturelle — avec une fenêtre trop étroite, les
+        # cartes en trop débordent hors champ au lieu de rétrécir. 1300 px
+        # loge confortablement 3 cartes ; minsize suit la même logique.
+        self.root.geometry("1300x880")
+        self.root.minsize(1200, 820)
         self.root.configure(bg=PALETTE["bg"])
 
         self.campaign: CampaignRunner | None = None

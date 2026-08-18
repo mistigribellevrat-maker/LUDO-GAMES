@@ -110,6 +110,13 @@ class TurretScene(tk.Canvas):
 
     def load_wave(self, wave) -> None:
         """Démarre une nouvelle vague à partir d'un `problems.Wave`."""
+        # Sur la toute première vague d'une mission, ce canvas vient d'être
+        # empaqueté et Tk n'a pas encore calculé sa vraie taille (winfo_width/
+        # height renverraient 1) : update_idletasks() force cette passe de
+        # géométrie immédiatement, sans attendre un tour de boucle événements.
+        # Sans ça, la cible visée est un point fantôme (5,5) au lieu du centre
+        # réel du dôme — bug constaté en jeu.
+        self.update_idletasks()
         w = max(self.winfo_width(), 10)
         h = max(self.winfo_height(), 10)
         cx, cy = w / 2, h / 2

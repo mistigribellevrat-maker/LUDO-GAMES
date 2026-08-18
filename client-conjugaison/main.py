@@ -374,6 +374,23 @@ class ConjugaisonApp:
             font=(FONT_BODY, 9, "italic"),
         )
 
+    # Vidéos de fin de mission (victoire/défaite) : déposer le fichier à cet
+    # emplacement suffit à l'activer (voir commun/video.py::play_intro — sans
+    # fichier, rien ne se passe, l'écran de résultat s'affiche normalement).
+    RESULT_VIDEO_PATH = {
+        True: os.path.join("assets", "videos", "victoire.mp4"),
+        False: os.path.join("assets", "videos", "defaite.mp4"),
+    }
+
+    def _play_result_video(self, victory: bool) -> None:
+        play_intro(
+            self.root,
+            os.path.join(_HERE, self.RESULT_VIDEO_PATH[victory]),
+            bg=PALETTE["bg"],
+            hint_fg=PALETTE["muted"],
+            font=(FONT_BODY, 9, "italic"),
+        )
+
     def _grade_name(self) -> str:
         """Grade militaire correspondant à l'XP courante. Le calcul vit dans
         commun/scoring.py, partagé avec les autres jeux : l'XP est une
@@ -509,6 +526,7 @@ class ConjugaisonApp:
                              credit_gain: int = 0, xp_gain: int = 0, newly_unlocked: list = None) -> None:
         self._clear_content()
         c = self.content
+        self._play_result_video(victory)
 
         banner_color = PALETTE["accent2"] if victory else PALETTE["danger"]
         banner_text = "SECTEUR SÉCURISÉ — DÉFENSE RÉUSSIE" if victory else "DÔME PERCÉ — LE SECTEUR EST TOMBÉ"
