@@ -82,8 +82,12 @@ class DictationApp:
     _LEVEL_SLUGS = {"CE1": "ce1", "CE2": "ce2", "CM1": "cm1", "CM2": "cm2", "Collège": "college"}
     STREAK_MILESTONES = (7, 30, 100)
 
-    def __init__(self, root, gemini_service, tts_service, anticheat_service, music_service):
+    def __init__(self, root, gemini_service, tts_service, anticheat_service, music_service, campaign: bool = False):
         self.root = root
+        # Mode campagne (lancé par le Hub avec --campagne) : la dictée se
+        # referme tout seule après la mission pour laisser le jeu suivant
+        # démarrer (voir _auto_close_campaign).
+        self.campaign_mode = campaign
         self.gemini_service = gemini_service
         self.tts_service = tts_service
         self.anticheat_service = anticheat_service
@@ -946,6 +950,17 @@ class DictationApp:
         if self.high_scores_enabled and self.score > 0 and self.username:
             self._save_high_score_async(self.level_var.get(), self.username, self.score, duration)
 
+        # Mode campagne : l'écran de résultat (et les boîtes de dialogue, qui
+        # sont modales et bloquent la boucle Tk) s'affiche normalement, puis
+        # la fenêtre se referme toute seule pour enchaîner le jeu suivant.
+        if self.campaign_mode:
+            self.root.after(10000, self._auto_close_campaign)
+
+    def _auto_close_campaign(self):
+        if self._closing:
+            return
+        self._on_closing()
+
     def _save_high_score_async(self, level: str, name: str, score: int, duration: float) -> None:
         """add_score() parle au réseau (HTTP + FTP, jusqu'à ~10s de timeout, avec
         retries) : on la lance sur un thread worker pour ne pas geler l'UI en fin
@@ -997,6 +1012,11 @@ class DictationApp:
         self.validate_button.config(state=tk.DISABLED)
         self.repeat_button.config(state=tk.DISABLED)
         self.music_service.resume_background()
+        # Mode campagne : pas de dialogue « relancer une mission ? » — le jeu
+        # se referme tout seul pour enchaîner la mission suivante.
+        if self.campaign_mode:
+            self.root.after(8000, self._auto_close_campaign)
+            return
         replay = messagebox.askyesno("Défaite", "Les boucliers de la ville sont à 0% !\n\nVoulez-vous relancer une mission ?")
         if replay:
             self.start_new_dictation()
@@ -1700,6 +1720,9 @@ if __name__ == "__main__":
         # fichier, une erreur au démarrage serait totalement invisible.
         setup_file_logging(_HERE)
         load_dotenv()
+        # Mode campagne : lancé par le Hub avec --campagne, la dictée se
+        # referme tout seule après la mission (voir _auto_close_campaign).
+        campaign = "--campagne" in sys.argv
         root = tk.Tk()
         log_tk_exceptions(root)
         root.withdraw()
@@ -1715,7 +1738,7 @@ if __name__ == "__main__":
         anticheat_service = AntiCheatService()
         music_service = MusicService()
         
-        app = DictationApp(root, gemini_service, tts_service, anticheat_service, music_service)
+        app = DictationApp(root, gemini_service, tts_service, anticheat_service, music_service, campaign=campaign)
         root.deiconify()
         root.mainloop()
 

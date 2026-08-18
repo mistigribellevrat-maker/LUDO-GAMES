@@ -58,8 +58,29 @@ class ConjugaisonApp:
     # progression globale, un même total doit donner le même titre partout.
     GRADES = SHARED_GRADES
 
-    def __init__(self, root: tk.Tk) -> None:
+    # Catalogue de la boutique : chaque achat ajoute `helps` charges
+    # utilisables en mission (voir _buy_item/_consume_charge). L'inventaire
+    # (`shop_charges`) est local au jeu, comme l'inventaire d'armes de la
+    # dictée ; seuls les crédits (globaux) sont synchronisés au serveur.
+    SHOP_ITEMS = [
+        {"key": "traqueur", "name": "Traqueur de cible", "price": 150, "helps": 1,
+         "icon": "🎯", "effect": "Le bon vaisseau clignote 3 s au début de la vague"},
+        {"key": "bouclier", "name": "Coque renforcée", "price": 200, "helps": 1,
+         "icon": "🛡", "effect": "+1 échec autorisé pour la mission"},
+        {"key": "ralenti", "name": "Propulsion ralentie", "price": 150, "helps": 1,
+         "icon": "🐢", "effect": "+2 s de vol pour la vague en cours"},
+    ]
+
+    # Délai d'affichage de l'écran de résultat avant passage automatique au
+    # jeu suivant (mode campagne).
+    CAMPAIGN_RESULT_DELAY_S = 10
+
+    def __init__(self, root: tk.Tk, campaign: bool = False) -> None:
         self.root = root
+        # Mode campagne (lancé par le Hub avec --campagne) : l'écran de
+        # résultat se referme tout seul pour laisser le jeu suivant démarrer.
+        self.campaign_mode = campaign
+        self._campaign_close_after_id: str | None = None
         self.root.title("TOURELLE DE DÉFENSE // SECTEUR LINGUISTIQUE")
         self.root.geometry("1100x750")
         self.root.minsize(900, 650)
@@ -76,6 +97,8 @@ class ConjugaisonApp:
         self.badges: list[str] = []
         self.streak = 0
         self.last_play_date = ""
+        # Charges de boutique possédées (inventaire local, voir SHOP_ITEMS).
+        self.shop_charges: dict[str, int] = {}
         self.profile_path = os.path.join(os.getcwd(), "user_profile.json")
 
         self._intro_spoken = False
@@ -123,6 +146,8 @@ class ConjugaisonApp:
         self.badges = badges if isinstance(badges, list) else []
         self.streak = int(data.get("streak", 0) or 0)
         self.last_play_date = data.get("last_play_date") or ""
+        charges = data.get("shop_charges")
+        self.shop_charges = charges if isinstance(charges, dict) else {}
 
     def _save_profile(self) -> None:
         data = {
@@ -134,6 +159,7 @@ class ConjugaisonApp:
             "badges": self.badges,
             "streak": self.streak,
             "last_play_date": self.last_play_date,
+            "shop_charges": self.shop_charges,
         }
         tmp_path = f"{self.profile_path}.tmp"
         try:
@@ -327,7 +353,8 @@ class ConjugaisonApp:
         stats_row = tk.Frame(title_box, bg=PALETTE["bg"])
         stats_row.pack(anchor="w", pady=(6, 0))
         StatChip(stats_row, "GRADE", self._grade_name(), width=150).pack(side=tk.LEFT, padx=(0, 8))
-        StatChip(stats_row, "CRÉDITS", self.credits, width=110).pack(side=tk.LEFT)
+        self._credits_chip = StatChip(stats_row, "CRÉDITS", self.credits, width=110)
+        self._credits_chip.pack(side=tk.LEFT)
 
         panel = RoundedFrame(c, padding=20, bg=PALETTE["bg"])
         panel.pack(fill=tk.X, padx=28, pady=12)
@@ -354,10 +381,14 @@ class ConjugaisonApp:
                    variant="solid", bg=PALETTE["panel2"], height=44).pack(side=tk.LEFT, padx=(0, 10))
         NeonButton(btn_row, text="Panthéon", command=self._open_high_scores,
                    variant="ghost", bg=PALETTE["panel2"], height=44).pack(side=tk.LEFT)
+        NeonButton(btn_row, text="Boutique", command=self._open_shop,
+                   variant="ghost", bg=PALETTE["panel2"], height=44).pack(side=tk.LEFT, padx=(6, 0))
 
         # Intro vidéo 16/9 en pop-up : elle remplace le briefing parlé par
         # défaut (la vidéo fait déjà l'accueil, voir commun/video.py::play_intro).
-        if not self._intro_spoken:
+        # En mode campagne, on la saute : le Hub enchaîne les jeux tout seul,
+        # une intro à chaque lancement ralentirait l'enchaînement.
+        if not self._intro_spoken and not self.campaign_mode:
             self._intro_spoken = True
             self._play_intro_video()
 
@@ -409,6 +440,130 @@ class ConjugaisonApp:
         else:
             messagebox.showerror("Erreur", "Le service du classement n'est pas disponible.")
 
+    # --- Boutique --------------------------------------------------------
+
+    def _update_credits_chip(self) -> None:
+        chip = getattr(self, "_credits_chip", None)
+        if chip is not None:
+            try:
+                chip.update(self.credits)
+            except tk.TclError:
+                pass
+
+    def _open_shop(self) -> None:
+        c = PALETTE
+        shop = tk.Toplevel(self.root)
+        shop.title("Boutique d'Améliorations")
+        shop.transient(self.root)
+        shop.grab_set()
+        shop.configure(bg=c["bg"])
+
+        header = tk.Frame(shop, bg=c["bg"])
+        header.pack(fill=tk.X, padx=16, pady=(14, 6))
+        tk.Label(header, text="BOUTIQUE D'AMÉLIORATIONS", bg=c["bg"], fg=c["text_strong"],
+                 font=(FONT_DISPLAY, 14, "bold")).pack(side=tk.LEFT)
+        credits_lbl = tk.Label(header, text=f"Crédits : {self.credits}", bg=c["bg"],
+                               fg=c["accent2"], font=(FONT_DISPLAY, 11, "bold"))
+        credits_lbl.pack(side=tk.RIGHT)
+
+        list_frame = tk.Frame(shop, bg=c["panel2"])
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=6)
+
+        for item in self.SHOP_ITEMS:
+            row = tk.Frame(list_frame, bg=c["panel2"])
+            row.pack(fill=tk.X, padx=8, pady=6)
+            tk.Label(row, text=item["icon"], bg=c["panel2"],
+                     font=(FONT_DISPLAY, 16)).pack(side=tk.LEFT, padx=(0, 8))
+            name_box = tk.Frame(row, bg=c["panel2"])
+            name_box.pack(side=tk.LEFT)
+            tk.Label(name_box, text=item["name"], bg=c["panel2"], fg=c["text"],
+                     font=(FONT_BODY, 11)).pack(anchor="w")
+            tk.Label(name_box, text=item["effect"], bg=c["panel2"], fg=c["muted"],
+                     font=(FONT_BODY, 9)).pack(anchor="w")
+            owned_label = tk.Label(row, text=f"Possédé : {int(self.shop_charges.get(item['key'], 0))}",
+                                   bg=c["panel2"], fg=c["accent2"], font=(FONT_BODY, 10))
+            owned_label.pack(side=tk.LEFT, padx=10)
+            buy_btn = NeonButton(row, text=f"Acheter — {item['price']} crédits", variant="primary",
+                                 command=lambda it=item, ol=owned_label: self._buy_item(it, credits_lbl, ol),
+                                 bg=c["panel2"], height=30)
+            buy_btn.pack(side=tk.RIGHT)
+
+        footer = tk.Frame(shop, bg=c["bg"])
+        footer.pack(fill=tk.X, padx=16, pady=(6, 14))
+        NeonButton(footer, text="Fermer", command=shop.destroy, variant="ghost",
+                   bg=c["bg"], height=30).pack(side=tk.RIGHT)
+
+        shop.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - shop.winfo_reqwidth()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - shop.winfo_reqheight()) // 2
+        shop.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+    def _buy_item(self, item: dict, credits_label_widget=None, owned_label_widget=None) -> None:
+        price = int(item["price"])
+        if self.credits < price:
+            messagebox.showwarning("Crédits insuffisants", "Vous n'avez pas assez de crédits pour cet achat.")
+            return
+        self.credits -= price
+        key = item["key"]
+        self.shop_charges[key] = int(self.shop_charges.get(key, 0)) + int(item["helps"])
+        self._save_profile()
+        self._update_credits_chip()
+        if credits_label_widget is not None:
+            try:
+                credits_label_widget.config(text=f"Crédits : {self.credits}")
+            except tk.TclError:
+                pass
+        if owned_label_widget is not None:
+            try:
+                owned_label_widget.config(text=f"Possédé : {int(self.shop_charges.get(key, 0))}")
+            except tk.TclError:
+                pass
+        messagebox.showinfo("Achat effectué", f"Vous avez acheté : {item['name']}\nCharges : {int(item['helps'])}")
+
+    def _consume_charge(self, key: str) -> None:
+        current = int(self.shop_charges.get(key, 0))
+        if current <= 0:
+            return
+        self.shop_charges[key] = current - 1
+        self._save_profile()
+        self._refresh_boost_buttons()
+
+    # --- Bonus de boutique en mission ------------------------------------
+
+    def _use_traqueur(self) -> None:
+        if self.mission is None or self.mission.finished:
+            return
+        if int(self.shop_charges.get("traqueur", 0)) <= 0:
+            return
+        self.turret_scene.highlight_correct(3.0)
+        self._consume_charge("traqueur")
+
+    def _use_bouclier(self) -> None:
+        if self.mission is None or self.mission.finished:
+            return
+        if int(self.shop_charges.get("bouclier", 0)) <= 0:
+            return
+        self.mission.max_mistakes += 1
+        self._consume_charge("bouclier")
+        self._refresh_mission_labels()
+
+    def _use_ralenti(self) -> None:
+        if self.mission is None or self.mission.finished:
+            return
+        if int(self.shop_charges.get("ralenti", 0)) <= 0:
+            return
+        self.turret_scene.slow_ships(2.0)
+        self._consume_charge("ralenti")
+
+    def _refresh_boost_buttons(self) -> None:
+        buttons = getattr(self, "_boost_buttons", {})
+        if not buttons:
+            return
+        finished = self.mission is not None and self.mission.finished
+        for key, btn in buttons.items():
+            has_charge = int(self.shop_charges.get(key, 0)) > 0
+            btn.set_state(tk.NORMAL if has_charge and not finished else tk.DISABLED)
+
     def start_mission(self) -> None:
         level = self.level_var.get()
         self.mission = ConjugationMission(level=level)
@@ -440,6 +595,21 @@ class ConjugaisonApp:
         self.prompt_label = tk.Label(c, text="", bg=PALETTE["bg"], fg=PALETTE["text_strong"],
                                       font=(FONT_MONO, 15, "bold"))
         self.prompt_label.pack(pady=(2, 4))
+
+        boost_row = tk.Frame(c, bg=PALETTE["bg"])
+        boost_row.pack(pady=(0, 4))
+        self._boost_buttons = {}
+
+        def _make_boost(key: str, text: str, command) -> None:
+            btn = NeonButton(boost_row, text=text, command=command, variant="ghost",
+                             bg=PALETTE["bg"], height=30)
+            btn.pack(side=tk.LEFT, padx=4)
+            self._boost_buttons[key] = btn
+
+        _make_boost("traqueur", "🎯 Traqueur", self._use_traqueur)
+        _make_boost("bouclier", "🛡 Bouclier", self._use_bouclier)
+        _make_boost("ralenti", "🐢 Ralentir", self._use_ralenti)
+        self._refresh_boost_buttons()
 
         scene_wrap = tk.Frame(c, bg=PALETTE["bg"])
         scene_wrap.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 16))
@@ -524,6 +694,7 @@ class ConjugaisonApp:
 
     def _show_result_screen(self, victory: bool, score: int, total: int, level: str,
                              credit_gain: int = 0, xp_gain: int = 0, newly_unlocked: list = None) -> None:
+        self._cancel_campaign_auto_close()
         self._clear_content()
         c = self.content
         self._play_result_video(victory)
@@ -566,6 +737,36 @@ class ConjugaisonApp:
         NeonButton(btn_row, text="Retour à la transmission", command=self.show_intro,
                    variant="ghost", bg=PALETTE["panel2"], height=40).pack(side=tk.LEFT, padx=6)
 
+        # En mode campagne, l'écran de résultat se referme tout seul pour que
+        # le Hub lance le jeu suivant. Tout clic sur un bouton annule le
+        # compte à rebours (le joueur a décidé de rester sur ce jeu).
+        if self.campaign_mode:
+            self._campaign_countdown = self.CAMPAIGN_RESULT_DELAY_S
+            self.countdown_label = tk.Label(card.inner, text="", bg=PALETTE["panel2"],
+                                            fg=PALETTE["muted"], font=(FONT_BODY, 10, "italic"))
+            self.countdown_label.pack(pady=(10, 0))
+            self._tick_campaign_countdown()
+
+    def _tick_campaign_countdown(self) -> None:
+        if self._campaign_countdown <= 0:
+            self._on_closing()
+            return
+        try:
+            self.countdown_label.config(
+                text=f"Prochaine mission dans {self._campaign_countdown} s — passage automatique")
+        except tk.TclError:
+            return
+        self._campaign_countdown -= 1
+        self._campaign_close_after_id = self.root.after(1000, self._tick_campaign_countdown)
+
+    def _cancel_campaign_auto_close(self) -> None:
+        if self._campaign_close_after_id is not None:
+            try:
+                self.root.after_cancel(self._campaign_close_after_id)
+            except tk.TclError:
+                pass
+            self._campaign_close_after_id = None
+
     def _replay(self, level: str) -> None:
         self.level_var = tk.StringVar(value=level)
         self.start_mission()
@@ -585,9 +786,12 @@ def main() -> None:
     # Sans console (pythonw, voir LANCER.bat), le journal fichier est la seule
     # trace en cas d'erreur.
     setup_file_logging(_HERE)
+    # Mode campagne : lancé par le Hub avec --campagne, le jeu se referme tout
+    # seul après l'écran de résultat (voir _show_result_screen).
+    campaign = "--campagne" in sys.argv
     root = tk.Tk()
     log_tk_exceptions(root)
-    ConjugaisonApp(root)
+    ConjugaisonApp(root, campaign=campaign)
     root.mainloop()
 
 

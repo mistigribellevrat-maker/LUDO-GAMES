@@ -73,6 +73,7 @@ class TurretScene(tk.Canvas):
         self._anim_after = None
         self._result_after_id = None
         self._wave_start = 0.0
+        self._highlight_until = 0.0  # fin de l'effet "traqueur" (boutique), 0 = inactif
 
         self.bind("<Motion>", self._on_motion)
         self.bind("<Button-1>", self._on_click)
@@ -108,6 +109,18 @@ class TurretScene(tk.Canvas):
     def set_flight_time(self, seconds: float) -> None:
         self._flight_time = seconds
 
+    def highlight_correct(self, seconds: float = 3.0) -> None:
+        """Traqueur (boutique) : le vaisseau correct est entouré d'un anneau
+        pulsant pendant `seconds` à partir de maintenant."""
+        self._highlight_until = time.monotonic() + seconds
+
+    def slow_ships(self, extra_seconds: float = 2.0) -> None:
+        """Propulsion ralentie (boutique) : rallonge le temps de vol des
+        vaisseaux encore en vol dans la vague courante."""
+        for ship in self._ships:
+            if ship.alive:
+                ship.flight_time += extra_seconds
+
     def load_wave(self, wave) -> None:
         """Démarre une nouvelle vague à partir d'un `problems.Wave`."""
         # Sur la toute première vague d'une mission, ce canvas vient d'être
@@ -127,6 +140,10 @@ class TurretScene(tk.Canvas):
         self._particles = []
         self._resolved = False
         self._wave_start = time.monotonic()
+        # Le traqueur (boutique) ne s'applique qu'à la vague cliquée : un
+        # effet qui subsisterait sur la vague suivante révélerait la bonne
+        # réponse sans que le joueur l'ait acheté pour elle.
+        self._highlight_until = 0.0
         self._ensure_animating()
         self._redraw()
 
@@ -325,6 +342,11 @@ class TurretScene(tk.Canvas):
         self.create_polygon(*p1, *p2, *p3, fill=fill, outline=color, width=2)
         self.create_text(ship.x, ship.y - size - 12, text=ship.text, fill=PALETTE["text_strong"],
                           font=(FONT_BODY, 11, "bold"))
+        if ship.is_correct and time.monotonic() < self._highlight_until:
+            pulse = (1 + math.sin(time.monotonic() * 6)) / 2
+            ring_r = ship.radius + 6 + pulse * 4
+            self.create_oval(ship.x - ring_r, ship.y - ring_r, ship.x + ring_r, ship.y + ring_r,
+                             outline=PALETTE["accent2"], width=3)
 
 
 class ConjugationHighScoreWindow(tk.Toplevel):

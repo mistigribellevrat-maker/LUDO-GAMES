@@ -37,6 +37,7 @@ def make_profile_app(tmp_path):
         app.badges = []
         app.streak = 0
         app.last_play_date = ""
+        app.shop_charges = {}
         app.high_scores_enabled = False  # pas d'appel réseau dans ces tests
         app.high_score_service = None
         for key, value in overrides.items():

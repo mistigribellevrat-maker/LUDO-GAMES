@@ -47,6 +47,30 @@ GAMES = [
      "icon": "🎯", "tagline": "Visez juste, conjuguez vite."},
 ]
 
+
+def build_launch_command(game: dict, campaign: bool = False) -> list:
+    """Commande de lancement d'un jeu en sous-processus.
+
+    Le hub tourne avec le python systeme, mais chaque jeu a ses paquets
+    installes dans son propre venv/ : il faut donc son propre interpreteur.
+    pythonw.exe (variante sans console) est prefere a python.exe — sinon
+    chaque jeu lance depuis le Hub ouvrait une fenetre noire a cote de lui.
+
+    `campaign=True` ajoute `--campagne` : le jeu se refermera tout seul après
+    sa mission (voir les mains.py des jeux) pour enchaîner sur le suivant.
+    Fonction pure (aucun Popen) : testable sans sous-processus."""
+    game_dir = os.path.normpath(os.path.join(_HERE, game["dir"]))
+    scripts_dir = os.path.join(game_dir, "venv", "Scripts")
+    python_exe = next(
+        (os.path.join(scripts_dir, exe) for exe in ("pythonw.exe", "python.exe")
+         if os.path.isfile(os.path.join(scripts_dir, exe))),
+        sys.executable,
+    )
+    command = [python_exe, "main.py"]
+    if campaign:
+        command.append("--campagne")
+    return command
+
 PLAYERS_PATH = os.path.join(_HERE, "players.json")
 DEFAULT_PLAYERS = ["Arthur", "Oscar", "Cloclo", "Greg"]
 
@@ -514,27 +538,19 @@ class HubApp:
         except OSError as e:
             logger.warning("Impossible de propager l'identité vers %s: %s", profile_path, e)
 
-    def _launch_game_process(self, game: dict) -> subprocess.Popen:
+    def _launch_game_process(self, game: dict, campaign: bool = False) -> subprocess.Popen:
         game_dir = os.path.normpath(os.path.join(_HERE, game["dir"]))
         if self.username:
             self._sync_identity_to_game(game_dir, self.username, self.avatar_path)
         # Le hub tourne avec le python systeme, mais chaque jeu a ses paquets
         # installes dans son propre venv/. Utiliser sys.executable ici
         # lancerait le jeu sans pygame/PIL/etc.
-        # pythonw.exe (variante sans console) est prefere a python.exe : sinon
-        # chaque jeu lance depuis le Hub ouvrait une fenetre noire a cote de lui.
-        scripts_dir = os.path.join(game_dir, "venv", "Scripts")
-        python_exe = next(
-            (os.path.join(scripts_dir, exe) for exe in ("pythonw.exe", "python.exe")
-             if os.path.isfile(os.path.join(scripts_dir, exe))),
-            sys.executable,
-        )
+        command = build_launch_command(game, campaign)
         # Filet supplementaire quand on retombe sur sys.executable (python.exe) :
         # CREATE_NO_WINDOW empeche la console d'apparaitre. Le drapeau n'existe
         # que sous Windows.
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        return subprocess.Popen([python_exe, "main.py"], cwd=game_dir,
-                                creationflags=creation_flags)
+        return subprocess.Popen(command, cwd=game_dir, creationflags=creation_flags)
 
     def play_single(self, game: dict) -> None:
         self._set_busy(f"{game['label']} en cours — revenez ici à la fermeture du jeu.")
@@ -589,7 +605,13 @@ class HubApp:
             return
         self._campaign_snapshot_before = self._read_progress_snapshot(GAMES[0]["dir"])
         self._set_busy(f"Mode Campagne — {GAMES[0]['label']} en cours...")
-        self.campaign = CampaignRunner(GAMES, self._launch_game_process, on_finished=self._campaign_finished)
+        # campaign=True : les jeux reçoivent --campagne et se referment tout
+        # seuls après leur mission (voir les mains.py des jeux), ce qui fait
+        # avancer CampaignRunner vers le jeu suivant.
+        self.campaign = CampaignRunner(
+            GAMES, lambda game: self._launch_game_process(game, campaign=True),
+            on_finished=self._campaign_finished,
+        )
         self.campaign.start()
         self._poll_campaign()
 
