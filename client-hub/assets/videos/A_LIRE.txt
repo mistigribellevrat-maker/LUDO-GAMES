@@ -5,12 +5,12 @@ Deposer ici un fichier nomme exactement :
 
     hub.mp4
 
-Il sera joue EN BOUCLE dans le bandeau 16/9 en haut de l'ecran d'accueil.
+Il sera joue UNE FOIS (avec le son, si la piste audio existe) au demarrage du
+Hub, dans le bandeau 16/9 en haut de l'ecran d'accueil, puis reste fige sur la
+derniere image. Cliquer sur le bandeau la rejoue depuis le debut.
 Tant qu'aucun fichier n'est depose, le bandeau garde sa place et affiche
 "ECRAN DE COMMANDEMENT (video 16/9)" : l'ecran ne change pas de forme le jour
 ou la video arrive.
 
 Format conseille : MP4 (H.264), 16/9. Le bandeau fait 480x270 a l'ecran, une
-video en 960x540 suffit largement. Une boucle courte (10-20 s) et sans son
-convient mieux qu'un long clip : elle tourne en permanence derriere le choix
-des missions.
+video en 960x540 suffit largement.

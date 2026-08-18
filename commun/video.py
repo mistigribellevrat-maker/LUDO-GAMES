@@ -368,9 +368,12 @@ class ControlledVideoPlayer:
 
 
 class VideoBanner(tk.Frame):
-    """Zone 16/9 intégrée à un écran, qui lit une vidéo en boucle si le fichier
-    existe. Sinon elle garde sa place et affiche un repère discret : l'écran ne
-    change pas de forme selon qu'une vidéo a été déposée ou non."""
+    """Zone 16/9 intégrée à un écran, qui joue une vidéo (avec son si
+    `pygame`/`imageio_ffmpeg` sont disponibles) une fois à l'ouverture, puis
+    reste figée sur la dernière image. Cliquer dessus la rejoue depuis le
+    début. Sans fichier vidéo, elle garde sa place et affiche un repère
+    discret : l'écran ne change pas de forme selon qu'une vidéo a été déposée
+    ou non."""
 
     TARGET_FPS = 16
 
@@ -383,24 +386,42 @@ class VideoBanner(tk.Frame):
         self.grid_propagate(False)
         self._size = (width, height)
         self._player: ControlledVideoPlayer | None = None
+        self._audio: _IntroAudioTrack | None = None
+        self._video_path: str | None = None
         self.label = tk.Label(self, bg=bg, fg=fg, text="", font=font)
         self.label.pack(fill=tk.BOTH, expand=True)
+        self.label.bind("<Button-1>", lambda _e: self.replay())
         self.set_video(video_path, placeholder)
 
     def set_video(self, video_path: str = None, placeholder: str = "") -> None:
         self.stop()
+        self._video_path = video_path
         if video_path and os.path.exists(video_path) and video_available():
-            self.label.config(text="", image="")
-            self._player = ControlledVideoPlayer(
-                self.label, video_path, self._size, loop=True, fps=self.TARGET_FPS)
-            self._player.play()
+            self.label.config(text="", image="", cursor="hand2")
+            self._start_playback()
         else:
-            self.label.config(image="", text=placeholder)
+            self.label.config(image="", text=placeholder, cursor="")
+
+    def replay(self) -> None:
+        """Rejoue la vidéo depuis le début (clic sur le bandeau)."""
+        if self._video_path and os.path.exists(self._video_path) and video_available():
+            self._start_playback()
+
+    def _start_playback(self) -> None:
+        self.stop()
+        self._player = ControlledVideoPlayer(
+            self.label, self._video_path, self._size, loop=False, fps=self.TARGET_FPS)
+        self._player.play()
+        if audio_available():
+            self._audio = _IntroAudioTrack(self._video_path)
 
     def stop(self) -> None:
         if self._player is not None:
             self._player.stop()
             self._player = None
+        if self._audio is not None:
+            self._audio.stop()
+            self._audio = None
 
 
 class IntroVideoWindow(tk.Toplevel):
